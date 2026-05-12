@@ -209,6 +209,11 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Sportident / Application
+*.csv
+*.tsv
+images/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
