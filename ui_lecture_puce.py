@@ -328,14 +328,14 @@ class AppLecturePuce(tk.Tk):
             self.si = None
             self.after(0, lambda: self._set_status(f"Erreur lecture : {e}", ok=False))
             self.after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
-            self.after(0, self._reset_bouton)
+            self.after(0, lambda: self._reset_bouton(erreur=True))
             return
         except Exception as e:
             # SerialException (débranchement USB) ou autre erreur inattendue
             self.si = None
             self.after(0, lambda: self._set_status(f"Connexion perdue : {e}", ok=False))
             self.after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
-            self.after(0, self._reset_bouton)
+            self.after(0, lambda: self._reset_bouton(erreur=True))
             return
 
         # Boucle terminée proprement (annulation)
@@ -589,10 +589,11 @@ class AppLecturePuce(tk.Tk):
             return
         self._sidebar_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    def _reset_bouton(self):
+    def _reset_bouton(self, erreur=False):
         self._lire_en_cours = False
         self.btn_annuler.pack_forget()
-        self.btn_lire.config(state="normal", text="Attendre une puce")
+        etat = "disabled" if erreur else "normal"
+        self.btn_lire.config(state=etat, text="Attendre une puce")
 
 
 if __name__ == "__main__":
