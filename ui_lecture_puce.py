@@ -270,7 +270,15 @@ class AppLecturePuce(tk.Tk):
 
         def _try_connect():
             try:
-                self.si = SIReaderReadout()
+                si_nouveau = SIReaderReadout()
+                # Garde-fou : si la fermeture a eu lieu pendant la connexion
+                if self._closing:
+                    try:
+                        si_nouveau.disconnect()
+                    except Exception:
+                        pass
+                    return
+                self.si = si_nouveau
                 self._safe_after(0, lambda: self._set_status(f"Connecté sur {self.si.port}", ok=True))
                 self._safe_after(0, lambda: self.btn_lire.config(state="normal"))
             except Exception as e:
@@ -370,8 +378,10 @@ class AppLecturePuce(tk.Tk):
                 return
 
         nom = self._demander_nom(card_number)
-        if nom is None:  # app fermée pendant le dialogue
+        if nom is None:  # app fermée ou lecture annulée via le dialogue
+            self._lire_en_cours = False
             self._card_event.set()
+            self._safe_after(0, lambda: self._reset_bouton())
             return
 
         frame = tk.Frame(self.frame_content, bg="white")
@@ -425,12 +435,10 @@ class AppLecturePuce(tk.Tk):
         while True:
             dialog = tk.Toplevel(self)
             dialog.title("Nom du participant")
-            dialog.geometry("320x155")
+            dialog.geometry("320x175")
             dialog.resizable(False, False)
             dialog.grab_set()
             dialog.focus_set()
-            # Empêche la fermeture par la croix (X)
-            dialog.protocol("WM_DELETE_WINDOW", lambda: None)
 
             tk.Label(dialog, text=f"Puce n°{card_number}", font=("Segoe UI", 9), fg="#555").pack(pady=(12, 2))
             tk.Label(dialog, text="Entrez le nom du participant :", font=("Segoe UI", 10)).pack()
@@ -443,6 +451,7 @@ class AppLecturePuce(tk.Tk):
             self._lbl_erreur_nom.pack()
 
             nom_result = [""]
+            annule = [False]
 
             def valider(event=None):
                 valeur = entry.get().strip()
@@ -452,15 +461,31 @@ class AppLecturePuce(tk.Tk):
                 nom_result[0] = valeur
                 dialog.destroy()
 
+            def annuler(event=None):
+                annule[0] = True
+                dialog.destroy()
+
+            # La croix (X) et le bouton Annuler stoppent la lecture
+            dialog.protocol("WM_DELETE_WINDOW", annuler)
+
             entry.bind("<Return>", valider)
+            entry.bind("<Escape>", annuler)
+
+            frame_btns = tk.Frame(dialog)
+            frame_btns.pack(pady=4)
             tk.Button(
-                dialog, text="Valider", command=valider,
+                frame_btns, text="Valider", command=valider,
                 bg="#1a73e8", fg="white", relief="flat",
                 font=("Segoe UI", 10, "bold"), cursor="hand2"
-            ).pack(ipadx=20, ipady=4)
+            ).pack(side="left", ipadx=16, ipady=4, padx=(0, 6))
+            tk.Button(
+                frame_btns, text="Annuler", command=annuler,
+                bg="#888", fg="white", relief="flat",
+                font=("Segoe UI", 10), cursor="hand2"
+            ).pack(side="left", ipadx=10, ipady=4)
 
             self.wait_window(dialog)
-            if self._closing:
+            if self._closing or annule[0]:
                 return None
             if nom_result[0]:
                 return nom_result[0]
@@ -597,14 +622,14 @@ class AppLecturePuce(tk.Tk):
         return str(val)
 
     def _sidebar_bind_scroll(self, event):
-        self._sidebar_canvas.bind_all("<MouseWheel>", self._on_sidebar_scroll)
-        self._sidebar_canvas.bind_all("<Button-4>", self._on_sidebar_scroll)
-        self._sidebar_canvas.bind_all("<Button-5>", self._on_sidebar_scroll)
+        self._sidebar_canvas.bind("<MouseWheel>", self._on_sidebar_scroll)
+        self._sidebar_canvas.bind("<Button-4>", self._on_sidebar_scroll)
+        self._sidebar_canvas.bind("<Button-5>", self._on_sidebar_scroll)
 
     def _sidebar_unbind_scroll(self, event):
-        self._sidebar_canvas.unbind_all("<MouseWheel>")
-        self._sidebar_canvas.unbind_all("<Button-4>")
-        self._sidebar_canvas.unbind_all("<Button-5>")
+        self._sidebar_canvas.unbind("<MouseWheel>")
+        self._sidebar_canvas.unbind("<Button-4>")
+        self._sidebar_canvas.unbind("<Button-5>")
 
     def _on_sidebar_scroll(self, event):
         if event.num == 4:
