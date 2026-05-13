@@ -35,6 +35,7 @@ class AppLecturePuce(tk.Tk):
         self._card_event = threading.Event()  # synchronise thread lecture ↔ thread principal
         self._noms = {}         # card_number -> nom du participant
         self._card_data = {}    # card_number -> card_data brut (pour export)
+        self._lbl_participant = {}  # card_number -> Label "Participant" dans le panneau
 
         self._build_ui()
         self._connect_station()
@@ -207,11 +208,15 @@ class AppLecturePuce(tk.Tk):
             ("Date de lecture :",         now),
             ("Balises pointées :", f"{len(punches_terrain)} / {BALISE_MAX - BALISE_MIN + 1}"),
         ]
+        lbl_participant = None
         for row, (label, valeur) in enumerate(infos):
             tk.Label(frame_info, text=label, font=("Segoe UI", 9, "bold"), anchor="w").grid(
                 row=row, column=0, sticky="w", padx=8, pady=2)
-            tk.Label(frame_info, text=valeur, font=("Segoe UI", 9), anchor="w", fg="#222").grid(
-                row=row, column=1, sticky="w", padx=8, pady=2)
+            lbl = tk.Label(frame_info, text=valeur, font=("Segoe UI", 9), anchor="w", fg="#222")
+            lbl.grid(row=row, column=1, sticky="w", padx=8, pady=2)
+            if row == 0:
+                lbl_participant = lbl
+        self._lbl_participant[card_number] = lbl_participant
 
         # ── Temps clés ──
         frame_temps = tk.LabelFrame(parent, text="Temps", font=("Segoe UI", 10, "bold"))
@@ -476,6 +481,8 @@ class AppLecturePuce(tk.Tk):
                 return
             self._noms[card_number] = nouveau
             self._sidebar_inner[card_number].config(text=nouveau)
+            if card_number in self._lbl_participant and self._lbl_participant[card_number]:
+                self._lbl_participant[card_number].config(text=nouveau)
             dialog.destroy()
 
         entry.bind("<Return>", valider)
@@ -492,7 +499,7 @@ class AppLecturePuce(tk.Tk):
         chemin = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("Fichier CSV", "*.csv")],
-            initialfile=f"puces_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            initialfile=f"lecture_puces_{datetime.now().strftime('%d-%m-%Y')}.csv",
             title="Enregistrer l'export CSV"
         )
         if not chemin:
@@ -543,6 +550,7 @@ class AppLecturePuce(tk.Tk):
         self._sidebar_inner.clear()
         self._noms.clear()
         self._card_data.clear()
+        self._lbl_participant.clear()
         self._active_btn = None
         self._current = None
 
