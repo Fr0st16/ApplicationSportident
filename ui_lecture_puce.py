@@ -32,6 +32,7 @@ class AppLecturePuce(tk.Tk):
         self._frames = {}       # card_number -> Frame de contenu
         self._current = None    # frame actuellement affichée
         self._lire_en_cours = False
+        self._closing = False       # True dès que _on_close est déclenché
         self._card_event = threading.Event()  # synchronise thread lecture ↔ thread principal
         self._noms = {}         # card_number -> nom du participant
         self._card_data = {}    # card_number -> card_data brut (pour export)
@@ -83,9 +84,8 @@ class AppLecturePuce(tk.Tk):
             scrollregion=self._sidebar_canvas.bbox("all")))
         self._sidebar_canvas.bind("<Configure>", lambda e: self._sidebar_canvas.itemconfig(
             self._sidebar_window, width=e.width))
-        self._sidebar_canvas.bind("<Enter>", lambda e: self._sidebar_canvas.bind_all(
-            "<MouseWheel>", self._on_sidebar_scroll))
-        self._sidebar_canvas.bind("<Leave>", lambda e: self._sidebar_canvas.unbind_all("<MouseWheel>"))
+        self._sidebar_canvas.bind("<Enter>", self._sidebar_bind_scroll)
+        self._sidebar_canvas.bind("<Leave>", self._sidebar_unbind_scroll)
 
         self.lbl_sidebar = tk.Label(
             self.sidebar, text="Puces lues : 0",
@@ -257,6 +257,7 @@ class AppLecturePuce(tk.Tk):
     #  Connexion à la station
     # ─────────────────────────────────────
     def _connect_station(self):
+        self.btn_lire.config(state="disabled")
         # Nettoyer l'ancienne connexion si elle existe
         if self.si is not None:
             try:
@@ -270,12 +271,12 @@ class AppLecturePuce(tk.Tk):
         def _try_connect():
             try:
                 self.si = SIReaderReadout()
-                self.after(0, lambda: self._set_status(f"Connecté sur {self.si.port}", ok=True))
-                self.after(0, lambda: self.btn_lire.config(state="normal"))
+                self._safe_after(0, lambda: self._set_status(f"Connecté sur {self.si.port}", ok=True))
+                self._safe_after(0, lambda: self.btn_lire.config(state="normal"))
             except Exception as e:
-                self.after(0, lambda: self._set_status(f"Erreur connexion : {e}", ok=False))
-                self.after(0, lambda: self.btn_lire.config(state="disabled"))
-                self.after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
+                self._safe_after(0, lambda: self._set_status(f"Erreur connexion : {e}", ok=False))
+                self._safe_after(0, lambda: self.btn_lire.config(state="disabled"))
+                self._safe_after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
         threading.Thread(target=_try_connect, daemon=True).start()
 
     def _set_status(self, msg, ok=True):
@@ -315,31 +316,31 @@ class AppLecturePuce(tk.Tk):
 
                 # Demander au thread principal de traiter la puce, puis attendre
                 self._card_event.clear()
-                self.after(0, lambda cn=card_number, cd=card_data: self._creer_onglet_puce(cn, cd))
+                self._safe_after(0, lambda cn=card_number, cd=card_data: self._creer_onglet_puce(cn, cd))
                 self._card_event.wait()  # bloque jusqu'à ce que _creer_onglet_puce soit terminé
 
                 if self._lire_en_cours:
                     # Préparer la prochaine lecture
                     self.si.sicard = None
                     self.si.flush()
-                    self.after(0, lambda: self._set_status("Posez la prochaine puce sur la station...", ok=True))
+                    self._safe_after(0, lambda: self._set_status("Posez la prochaine puce sur la station...", ok=True))
 
         except SIReaderException as e:
             self.si = None
-            self.after(0, lambda: self._set_status(f"Erreur lecture : {e}", ok=False))
-            self.after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
-            self.after(0, lambda: self._reset_bouton(erreur=True))
+            self._safe_after(0, lambda: self._set_status(f"Erreur lecture : {e}", ok=False))
+            self._safe_after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
+            self._safe_after(0, lambda: self._reset_bouton(erreur=True))
             return
         except Exception as e:
             # SerialException (débranchement USB) ou autre erreur inattendue
             self.si = None
-            self.after(0, lambda: self._set_status(f"Connexion perdue : {e}", ok=False))
-            self.after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
-            self.after(0, lambda: self._reset_bouton(erreur=True))
+            self._safe_after(0, lambda: self._set_status(f"Connexion perdue : {e}", ok=False))
+            self._safe_after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
+            self._safe_after(0, lambda: self._reset_bouton(erreur=True))
             return
 
         # Boucle terminée proprement (annulation)
-        self.after(0, self._reset_bouton)
+        self._safe_after(0, self._reset_bouton)
 
     def _creer_onglet_puce(self, card_number, card_data):
         """Demande un nom puis crée un panneau et un bouton sidebar pour la puce lue."""
@@ -369,6 +370,9 @@ class AppLecturePuce(tk.Tk):
                 return
 
         nom = self._demander_nom(card_number)
+        if nom is None:  # app fermée pendant le dialogue
+            self._card_event.set()
+            return
 
         frame = tk.Frame(self.frame_content, bg="white")
         self._build_tab_puce(frame, card_number, card_data, nom)
@@ -397,7 +401,13 @@ class AppLecturePuce(tk.Tk):
         # Menu clic droit → Renommer
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label="Renommer", command=lambda n=card_number: self._renommer_puce(n))
-        btn.bind("<Button-3>", lambda e, m=menu: m.tk_popup(e.x_root, e.y_root))
+
+        def _popup(e, m=menu):
+            try:
+                m.tk_popup(e.x_root, e.y_root)
+            finally:
+                m.grab_release()
+        btn.bind("<Button-3>", _popup)
 
         # Afficher le bouton export dès la première puce
         if len(self._frames) == 1:
@@ -450,6 +460,8 @@ class AppLecturePuce(tk.Tk):
             ).pack(ipadx=20, ipady=4)
 
             self.wait_window(dialog)
+            if self._closing:
+                return None
             if nom_result[0]:
                 return nom_result[0]
 
@@ -459,7 +471,7 @@ class AppLecturePuce(tk.Tk):
         self._set_status("Lecture annulée.", ok=True)
 
     def _renommer_puce(self, card_number):
-        """Affiche une dialog pour renommer une puce existante."""
+        """Affiche un dialogue pour renommer une puce existante."""
         dialog = tk.Toplevel(self)
         dialog.title("Renommer")
         dialog.geometry("300x120")
@@ -564,6 +576,7 @@ class AppLecturePuce(tk.Tk):
 
     def _on_close(self):
         """Ferme proprement l'application en libérant le port série."""
+        self._closing = True
         self._lire_en_cours = False
         self._card_event.set()  # débloque le thread s'il attend le dialogue de nom
         if self.si is not None:
@@ -583,11 +596,35 @@ class AppLecturePuce(tk.Tk):
             return val.strftime("%d/%m/%Y %H:%M:%S")
         return str(val)
 
+    def _sidebar_bind_scroll(self, event):
+        self._sidebar_canvas.bind_all("<MouseWheel>", self._on_sidebar_scroll)
+        self._sidebar_canvas.bind_all("<Button-4>", self._on_sidebar_scroll)
+        self._sidebar_canvas.bind_all("<Button-5>", self._on_sidebar_scroll)
+
+    def _sidebar_unbind_scroll(self, event):
+        self._sidebar_canvas.unbind_all("<MouseWheel>")
+        self._sidebar_canvas.unbind_all("<Button-4>")
+        self._sidebar_canvas.unbind_all("<Button-5>")
+
     def _on_sidebar_scroll(self, event):
-        # Empêche de scroller au-delà du haut
-        if event.delta > 0 and self._sidebar_canvas.yview()[0] <= 0:
+        if event.num == 4:
+            delta = -1          # Linux : molette haut
+        elif event.num == 5:
+            delta = 1           # Linux : molette bas
+        else:
+            delta = int(-1 * (event.delta / 120))  # Windows / macOS
+        if delta < 0 and self._sidebar_canvas.yview()[0] <= 0:
             return
-        self._sidebar_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self._sidebar_canvas.yview_scroll(delta, "units")
+
+    def _safe_after(self, ms, func):
+        """Appel after() sécurisé : ignoré si l'app est en cours de destruction."""
+        if self._closing:
+            return
+        try:
+            self.after(ms, func)
+        except Exception:
+            pass
 
     def _reset_bouton(self, erreur=False):
         self._lire_en_cours = False
