@@ -447,10 +447,7 @@ class AppLecturePuce(tk.Tk):
         self._set_status(f"Puce {card_number} lue avec succès.", ok=True)
         self._card_event.set()  # signale au thread que le traitement est terminé
 
-    def _creer_onglet_puce_finally(self):
-        """Appelé en finally de _creer_onglet_puce pour garantir le déblocage du thread."""
-        if not self._card_event.is_set():
-            self._card_event.set()
+    def _demander_nom(self, card_number):
         """Affiche une boîte de dialogue pour saisir le nom du participant (obligatoire)."""
         while True:
             dialog = tk.Toplevel(self)
