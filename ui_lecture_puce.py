@@ -278,8 +278,25 @@ class AppLecturePuce(tk.Tk):
                     except Exception:
                         pass
                     return
+                # Configurer la station si nécessaire (extended protocol + mode READOUT)
+                try:
+                    if not si_nouveau.proto_config.get('ext_proto'):
+                        si_nouveau.set_extended_protocol(True)
+                    if si_nouveau.proto_config.get('mode') != si_nouveau.M_READOUT:
+                        si_nouveau.set_operating_mode(si_nouveau.M_READOUT)
+                except SIReaderException as e:
+                    try:
+                        si_nouveau.disconnect()
+                    except Exception:
+                        pass
+                    self._safe_after(0, lambda: self._set_status(
+                        f"Station mal configurée : {e}", ok=False))
+                    self._safe_after(0, lambda: self.btn_lire.config(state="disabled"))
+                    self._safe_after(0, lambda: self.btn_reconnecter.pack(side="right", padx=6, pady=2))
+                    return
                 self.si = si_nouveau
-                self._safe_after(0, lambda: self._set_status(f"Connecté sur {self.si.port}", ok=True))
+                port = si_nouveau.port  # capture locale : self.si peut changer après
+                self._safe_after(0, lambda: self._set_status(f"Connecté sur {port}", ok=True))
                 self._safe_after(0, lambda: self.btn_lire.config(state="normal"))
             except Exception as e:
                 self._safe_after(0, lambda: self._set_status(f"Erreur connexion : {e}", ok=False))
@@ -325,7 +342,7 @@ class AppLecturePuce(tk.Tk):
                 # Demander au thread principal de traiter la puce, puis attendre
                 self._card_event.clear()
                 self._safe_after(0, lambda cn=card_number, cd=card_data: self._creer_onglet_puce(cn, cd))
-                self._card_event.wait()  # bloque jusqu'à ce que _creer_onglet_puce soit terminé
+                self._card_event.wait(timeout=30)  # timeout de sécurité en cas d'exception UI
 
                 if self._lire_en_cours:
                     # Préparer la prochaine lecture
@@ -430,7 +447,10 @@ class AppLecturePuce(tk.Tk):
         self._set_status(f"Puce {card_number} lue avec succès.", ok=True)
         self._card_event.set()  # signale au thread que le traitement est terminé
 
-    def _demander_nom(self, card_number):
+    def _creer_onglet_puce_finally(self):
+        """Appelé en finally de _creer_onglet_puce pour garantir le déblocage du thread."""
+        if not self._card_event.is_set():
+            self._card_event.set()
         """Affiche une boîte de dialogue pour saisir le nom du participant (obligatoire)."""
         while True:
             dialog = tk.Toplevel(self)
@@ -632,9 +652,10 @@ class AppLecturePuce(tk.Tk):
         self._sidebar_canvas.unbind("<Button-5>")
 
     def _on_sidebar_scroll(self, event):
-        if event.num == 4:
+        num = getattr(event, 'num', None)
+        if num == 4:
             delta = -1          # Linux : molette haut
-        elif event.num == 5:
+        elif num == 5:
             delta = 1           # Linux : molette bas
         else:
             delta = int(-1 * (event.delta / 120))  # Windows / macOS
