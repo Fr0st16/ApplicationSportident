@@ -1,0 +1,47 @@
+feat: gestion complete de parcours avec hub de lecture multi-parcours
+
+Avant cette branche, seule la lecture libre (3e bouton de l accueil)
+etait disponible : pas de creation de parcours, pas de routage par
+balises, un seul onglet de lecture isole.
+
+Ajout du module de creation/import de parcours (ui_parcours.py) et
+refonte complete de l interface de lecture autour d un hub centralise
+capable de gerer plusieurs parcours en parallele.
+
+Creation de parcours :
+- Grille de 226 balises avec selection par clic ou par glisser
+- Presets rapides (10/24/26 balises), case Ordre obligatoire avec
+  apercu de la sequence
+- Import CSV intelligent, import OCAD (IOF XML v2/v3, Export Text)
+- Enregistrement / chargement en TSV et CSV, simple ou lot multi-parcours
+
+Hub de lecture :
+- Un seul onglet regroupant tous les parcours ouverts, navigation par
+  listbox avec badge du nombre de puces lues
+- Panneau de lecture global : une seule connexion physique au lecteur
+  SI pour tous les parcours, routage automatique de chaque puce vers
+  le parcours dont les balises correspondent le mieux
+- Mode Libre / Controlee : en controlee, fenetre de validation par
+  puce (parcours modifiable, balises colorees vert/orange/rouge,
+  Valider/Annuler)
+- Modification des parcours deja ouverts sans perdre les puces lues
+- Fermeture de parcours et export CSV groupe, avec confirmations
+- Deplacement manuel d une puce entre parcours
+
+Corrections :
+- No SI reader found persistant apres creation d un seul parcours
+  (connexion auto hors du panneau global)
+- Port serie verrouille apres fermeture du hub (deconnexion
+  asynchrone interrompue par la destruction des widgets)
+- UnboundLocalError sur les parcours sans ordre obligatoire
+- Reconnexion automatique silencieuse remplacee par un echec explicite
+  (bouton Attendre une puce -> rouge Relancer)
+- Rectangle noir residuel et accumulation d affichage dans le hub
+- AttributeError sur btn_reconnecter en mode hub
+- Bouton Lancer la lecture sans parent (widget orphelin)
+
+Nettoyage :
+- Suppression de helpers.py (fonction utile deplacee dans
+  ui_lecture_puce.py, code mort supprime)
+- Suppression des lignes vides parasites dans ui_parcours.py
+  (2497 -> 1593 lignes, contenu identique)
