@@ -164,7 +164,7 @@ class AppLecturePuce(tk.Frame):
             # Caché par défaut, affiché en cas de déconnexion
 
             tk.Button(
-                frame_status,
+                frame_status, text="Fermer",
                 bg="#7f8c8d", fg="white", relief="flat",
                 font=("Segoe UI", 8), cursor="hand2",
                 activebackground="#636e72", activeforeground="white",
@@ -775,7 +775,7 @@ class AppLecturePuce(tk.Frame):
                         self._safe_after(0, lambda cn=card_number, cd=card_data: self._on_route_puce(self, cn, cd))
                     else:
                         self._safe_after(0, lambda cn=card_number, cd=card_data: self._creer_onglet_puce(cn, cd))
-                    self._card_event.wait(timeout=30)  # timeout de sécurité
+                    self._card_event.wait(timeout=120)  # timeout de sécurité
 
                     if self._lire_en_cours and not self._closing:
                         # Préparer la prochaine lecture

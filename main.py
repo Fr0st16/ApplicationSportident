@@ -816,6 +816,14 @@ class MainApp:
                 self._hub_listbox = None
                 self._hub_content = None
                 self._hub_count_lbl = None
+                self._hub_btn_lecture = None
+                self._hub_panel_lecture = None
+                self._hub_btn_attendre = None
+                self._hub_btn_annuler = None
+                self._hub_lbl_status = None
+                self._hub_lbl_liste = None
+                self._hub_btn_mode = None
+                self._hub_btn_charger_liste = None
 
     def _fermer_hub_app_selected(self):
         sel = self._hub_listbox.curselection() if self._hub_listbox else ()
@@ -1006,9 +1014,7 @@ class MainApp:
             for i in range(1, max_punches + 1):
                 header += [f"Balise {i}", f"Temps {i}"]
             writer.writerow(header)
-            for app in self._lecture_apps:
-                if not app._card_data:
-                    continue
+            for app in apps_avec_data:
                 for row in app._build_csv_rows(max_punches):
                     writer.writerow(row)
 

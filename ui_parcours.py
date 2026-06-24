@@ -146,6 +146,7 @@ class AppParcours(tk.Frame):
         ).pack(side="left", padx=(4, 0), ipadx=8, ipady=4)
         if self._on_done:
             tk.Button(
+                barre,
                 text="Lancer la lecture",
                 font=("Segoe UI", 11, "bold"),
                 bg="#1a73e8",
@@ -1175,7 +1176,7 @@ class AppParcours(tk.Frame):
         # (fichier contenant uniquement la liste des balises disponibles sur le terrain)
         if not lots:
             balises, seen = [], set()
-            for ctrl in root.findall(tag("Control")):
+            for ctrl in root.iter(tag("Control")):
                 code_el = ctrl.find(tag("ControlCode"))
                 if code_el is None or not code_el.text:
                     continue
@@ -1416,42 +1417,6 @@ class AppParcours(tk.Frame):
                 "Erreur", f"Impossible d'enregistrer :\n{e}", parent=self
             )
             return
-
-    def _charger_lot(self):
-        """Charge un fichier lot (.tsv ou .csv) et remplace le lot courant."""
-        chemin = filedialog.askopenfilename(
-            filetypes=[
-                ("Fichiers parcours", "*.tsv *.csv"),
-                ("Fichier TSV", "*.tsv"),
-                ("Fichier CSV", "*.csv"),
-                ("Tous les fichiers", "*.*"),
-            ],
-            title="Ouvrir un lot de parcours",
-            parent=self,
-        )
-        if not chemin:
-            return
-        try:
-            ext = os.path.splitext(chemin)[1].lower()
-            if ext == ".csv":
-                parcours = self._parser_lot_csv(chemin)
-            else:
-                parcours = self._parser_lot_tsv(chemin)
-        except Exception as e:
-            messagebox.showerror(
-                "Erreur", f"Impossible de lire le fichier :\n{e}", parent=self
-            )
-            return
-        if not parcours:
-            messagebox.showwarning(
-                "Aucun parcours",
-                "Aucun parcours valide trouvé dans ce fichier.",
-                parent=self,
-            )
-            return
-        self._lot = parcours
-        self._rafraichir_lot()
-        self._lbl_status.config(text=f"Lot chargé : {len(self._lot)} parcours")
 
     @staticmethod
     def _parser_lot_tsv(chemin):
