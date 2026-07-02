@@ -51,6 +51,9 @@ class MainApp:
         self._hub_lbl_liste = None
         self._hub_btn_mode = None
         self._hub_btn_charger_liste = None
+        self._hub_btn_charger_images = None
+        self._hub_lbl_images = None
+        self._images_balises = {}         # beacon_number (int) -> chemin fichier image
         self._hub_mode = "libre"
         self._hub_app_en_ecoute = None    # App physiquement en train de lire
 
@@ -269,6 +272,7 @@ class MainApp:
             on_request_move=self._on_request_move,
             on_export_all=self._exporter_tous,
             on_candidats_loaded=self._on_candidats_broadcast,
+            images_balises=self._images_balises,
         )
         app_ref[0] = app_lecture
         app_lecture.pack_forget()
@@ -418,6 +422,23 @@ class MainApp:
         )
         self._hub_lbl_liste.pack(anchor="w", pady=(2, 0))
 
+        frame_images = tk.Frame(f, bg="white")
+        frame_images.pack(fill="x", padx=10, pady=(4, 0))
+        self._hub_btn_charger_images = tk.Button(
+            frame_images, text="Charger images balises (dossier)",
+            font=("Segoe UI", 9),
+            bg="#2980b9", fg="white",
+            activebackground="#2471a3", activeforeground="white",
+            relief="flat", cursor="hand2",
+            command=self._hub_charger_images,
+        )
+        self._hub_btn_charger_images.pack(fill="x", ipady=5)
+        self._hub_lbl_images = tk.Label(
+            frame_images,
+            text="Aucune image chargée.",
+            font=("Segoe UI", 8), fg="#888", bg="white"
+        )
+        self._hub_lbl_images.pack(anchor="w", pady=(2, 0))
         self._hub_lbl_status = tk.Label(
             f, text="", font=("Segoe UI", 9), fg="#888", bg="white"
         )
@@ -496,6 +517,39 @@ class MainApp:
         for app in self._hub_apps:
             try:
                 app._appliquer_candidats(candidats)
+            except Exception:
+                pass
+
+    def _hub_charger_images(self):
+        """Charge un dossier d'images et associe chaque fichier à son numéro de balise."""
+        dossier = filedialog.askdirectory(
+            title="Choisir le dossier d'images des balises", parent=self.root
+        )
+        if not dossier:
+            return
+        extensions_valides = {'.png', '.gif', '.jpg', '.jpeg', '.bmp', '.webp'}
+        images = {}
+        for nom_fichier in os.listdir(dossier):
+            nom, ext = os.path.splitext(nom_fichier)
+            if ext.lower() not in extensions_valides:
+                continue
+            try:
+                num = int(nom)
+            except ValueError:
+                continue
+            images[num] = os.path.join(dossier, nom_fichier)
+        self._images_balises = images
+        nb = len(images)
+        if self._hub_lbl_images:
+            if nb > 0:
+                self._hub_lbl_images.config(text=f"✓  {nb} image(s) chargée(s)", fg="#27ae60")
+            else:
+                self._hub_lbl_images.config(
+                    text="Aucune image valide trouvée dans ce dossier.", fg="#e74c3c"
+                )
+        for app in self._hub_apps:
+            try:
+                app._appliquer_images(images)
             except Exception:
                 pass
 
@@ -751,6 +805,17 @@ class MainApp:
         except Exception:
             pass
 
+        # Mettre à jour le statut des images
+        try:
+            nb_img = len(self._images_balises)
+            if self._hub_lbl_images:
+                if nb_img > 0:
+                    self._hub_lbl_images.config(text=f"✓  {nb_img} image(s) chargée(s)", fg="#27ae60")
+                else:
+                    self._hub_lbl_images.config(text="Aucune image chargée.", fg="#888")
+        except Exception:
+            pass
+
         # Afficher le panneau global (superposé exactement dans _hub_content)
         try:
             self._hub_panel_lecture.place(in_=self._hub_content, x=0, y=0, relwidth=1, relheight=1)
@@ -824,6 +889,8 @@ class MainApp:
                 self._hub_lbl_liste = None
                 self._hub_btn_mode = None
                 self._hub_btn_charger_liste = None
+                self._hub_btn_charger_images = None
+                self._hub_lbl_images = None
 
     def _fermer_hub_app_selected(self):
         sel = self._hub_listbox.curselection() if self._hub_listbox else ()
@@ -1020,6 +1087,17 @@ class MainApp:
 
         messagebox.showinfo("Export réussi", f"Tous les parcours ont été exportés vers :\n{chemin}", parent=self.root)
 
+    def _trouver_nom_puce(self, card_number):
+        """Retourne le nom connu d'une puce en cherchant dans toutes les apps ouvertes."""
+        for app in self._lecture_apps:
+            try:
+                nom = app._noms.get(card_number)
+                if nom:
+                    return nom
+            except Exception:
+                pass
+        return None
+
     def _hub_trouver_app_existante(self, card_number):
         """Retourne l'app qui contient déjà cette puce (1er passage), ou None."""
         for app in self._lecture_apps:
@@ -1033,70 +1111,6 @@ class MainApp:
     def _on_puce_routed(self, source_app, card_number, card_data):
         self._lecture_apps = [a for a in self._lecture_apps if a.winfo_exists()]
 
-        # Relecture d'une puce déjà enregistrée (même en mode contrôlée) :
-        # on ajoute simplement le passage suivant là où elle se trouve déjà,
-        # sans repasser par la fenêtre de validation.
-        app_existante = self._hub_trouver_app_existante(card_number)
-        if app_existante is not None:
-            event_to_set = None if app_existante is source_app else source_app._card_event
-            app_existante._creer_onglet_puce(card_number, card_data, event_to_set=event_to_set, broadcast=False)
-            try:
-                if self._lecture_hub_tab is not None:
-                    self.notebook.select(self._lecture_hub_tab)
-                self._hub_show_app(app_existante)
-                self._hub_refresh_list()
-            except Exception:
-                pass
-            try:
-                if getattr(self, "_hub_lbl_status", None):
-                    self._hub_lbl_status.config(text="Passage supplémentaire enregistré.", fg="#27ae60")
-            except Exception:
-                pass
-            try:
-                if source_app is not app_existante:
-                    source_app._card_event.set()
-            except Exception:
-                pass
-            return
-
-        assigned = self._card_assignments.get(card_number)
-        if assigned:
-            if not getattr(assigned, 'winfo_exists', lambda: False)() or not assigned.winfo_exists():
-                self._card_assignments.pop(card_number, None)
-            else:
-                if self._hub_mode == "controlee":
-                    self._hub_ouvrir_validation(source_app, card_number, card_data, assigned)
-                    return
-                event_to_set = None if assigned is source_app else source_app._card_event
-                deja_present_avant = card_number in assigned._frames
-                assigned._creer_onglet_puce(card_number, card_data, event_to_set=event_to_set, broadcast=False)
-                enregistree = card_number in assigned._frames
-                if not enregistree and not deja_present_avant:
-                    try:
-                        if source_app is not assigned:
-                            source_app._card_event.set()
-                    except Exception:
-                        pass
-                    return
-                try:
-                    if self._lecture_hub_tab is not None:
-                        self.notebook.select(self._lecture_hub_tab)
-                    self._hub_show_app(assigned)
-                    self._hub_refresh_list()
-                except Exception:
-                    pass
-                try:
-                    if getattr(self, "_hub_lbl_status", None):
-                        self._hub_lbl_status.config(text="Puce enregistrée. Posez la prochaine puce...", fg="#27ae60")
-                except Exception:
-                    pass
-                try:
-                    if source_app is not assigned:
-                        source_app._card_event.set()
-                except Exception:
-                    pass
-                return
-
         from ui_lecture_puce import BALISE_MIN, BALISE_MAX
         punches = {
             p[0] for p in card_data.get("punches", [])
@@ -1109,15 +1123,17 @@ class MainApp:
                 scores[app] = len(punches & set(app._parcours["balises"]))
 
         max_score = max(scores.values()) if scores else 0
+        suggested = max(scores, key=scores.get) if max_score > 0 else None
 
-        if max_score == 0:
-            if self._hub_mode == "controlee":
-                # En mode contrôlée, on laisse l'utilisateur choisir le parcours
-                # même si aucun ne correspond automatiquement.
-                self._hub_ouvrir_validation(source_app, card_number, card_data, None)
-                return
-            # Mode libre : aucune balise ne correspond à aucun parcours →
-            # on assigne automatiquement au premier parcours ouvert plutôt que rejeter.
+        if self._hub_mode == "controlee":
+            # Mode contrôlée : toujours ouvrir la validation à chaque lecture,
+            # même pour une puce déjà enregistrée, pour permettre de changer de parcours.
+            self._hub_ouvrir_validation(source_app, card_number, card_data, suggested)
+            return
+
+        # Mode libre : re-évaluer le meilleur parcours à chaque lecture,
+        # sans mémoriser l'affectation précédente.
+        if suggested is None:
             if not self._hub_apps:
                 messagebox.showwarning(
                     "Aucun parcours reconnu",
@@ -1129,13 +1145,11 @@ class MainApp:
                 return
             primary = self._hub_apps[0]
         else:
-            winners = [app for app, s in scores.items() if s == max_score]
-            primary = winners[0]
+            primary = suggested
 
-            if self._hub_mode == "controlee":
-                self._hub_ouvrir_validation(source_app, card_number, card_data, primary)
-                return
-
+        nom_existant = self._trouver_nom_puce(card_number)
+        if nom_existant and card_number not in primary._noms:
+            primary._noms[card_number] = nom_existant
         event_to_set = None if primary is source_app else source_app._card_event
         deja_present_avant = card_number in primary._frames
         primary._creer_onglet_puce(card_number, card_data, event_to_set=event_to_set, broadcast=False)
@@ -1326,6 +1340,9 @@ class MainApp:
 
         if resultat["valide"] and resultat["app"] is not None:
             cible = resultat["app"]
+            nom_existant = self._trouver_nom_puce(card_number)
+            if nom_existant and card_number not in cible._noms:
+                cible._noms[card_number] = nom_existant
             event_to_set = None if cible is source_app else source_app._card_event
             deja_present_avant = card_number in cible._frames
             cible._creer_onglet_puce(card_number, card_data, event_to_set=event_to_set, broadcast=False)

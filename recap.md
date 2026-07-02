@@ -5,6 +5,7 @@
 - [ui_parcours.py](#ui_parcourspy)
 - [ui_lecture_puce.py](#ui_lecture_pucepy)
 - [main.py](#mainpy)
+- [Système d'images balises](#système-dimages-balises)
 
 ---
 
@@ -67,6 +68,12 @@
 - Affichage de la catégorie et du groupe dans la fiche puce si le candidat est pré-chargé
 - Si le parcours est défini, affichage d'un bandeau bleu avec le nom du parcours et le nombre de balises dans l'onglet de lecture
 - **Mode Libre / Contrôlée** : en mode contrôlée, chaque puce lue ouvre une fenêtre de validation (numéro, nom, parcours de destination modifiable, liste des balises) avant tout enregistrement
+- **Affichage décroissant des passages** : le passage le plus récent s'affiche toujours en haut, le plus ancien en bas ; le scroll remonte automatiquement à chaque nouvelle lecture
+- **Marge d'erreur (N+2)** : seuls les N+2 derniers pointages terrain sont analysés (N = nombre de balises du parcours) ; le parcours est validé si au moins N d'entre eux sont corrects, autorisant ainsi 2 erreurs de pointage
+- **Bandeau résultat agrandi** : le message "Parcours réussi" / "Parcours échoué" s'affiche en police taille 14, centré et sur toute la largeur pour une lecture immédiate
+- **Galerie scindée (parcours sans ordre)** : le cadre "Reconstitution du personnage" est divisé 50/50 — images en galerie horizontale à gauche, grand ✓ vert ou ✗ rouge à droite indiquant le résultat global du parcours
+- **Indicateur "Dernière balise"** : sous la dernière image de la galerie, un texte en gras signale la balise finale pointée
+- **Conservation du nom entre parcours** : quand une même puce est relue sur un parcours différent, le nom déjà saisi est réutilisé automatiquement sans redemander
 
 ### Corrections
 
@@ -77,6 +84,7 @@
 | Dépendance à `helpers.py` | `parse_candidate_csv` importée d'un fichier externe peu utilisé | Fonction déplacée directement ici ; `helpers.py` supprimable |
 | Le label "candidats chargés" ne se mettait pas à jour | Seule la diffusion vers les autres onglets mettait à jour le label, pas le chargement local | Mise à jour immédiate ajoutée |
 | `AttributeError` en mode hub lors d'une erreur de connexion | `btn_reconnecter` n'existe qu'en mode autonome ; des appels y accédaient sans vérifier son existence | Appels sécurisés via une méthode dédiée (`_pack_reconnecter`) |
+| `TclError: invalid command name` au changement de parcours | `_set_active_btn` tentait de reconfigurer un widget sidebar appartenant à une autre app (détruite) | Appels `.config()` protégés par `try/except` |
 
 ---
 
@@ -93,7 +101,8 @@
   - liste colorée des balises pointées : vert = correcte/bien placée, orange = mal placée dans l'ordre, rouge = hors parcours
   - boutons Valider / Annuler
   - fenêtre infermable par la croix ou Échap, pour éviter les validations accidentelles
-- Une relecture d'une puce déjà enregistrée (même en mode contrôlée) ajoute directement le passage suivant à l'endroit où elle se trouve déjà, sans repasser par la fenêtre de validation
+- **Mode contrôlée renforcé** : la fenêtre de validation s'ouvre à **chaque** lecture, même pour une puce déjà enregistrée, permettant de placer la même puce dans plusieurs parcours différents
+- **Mode libre dynamique** : le meilleur parcours est recalculé à chaque lecture par score d'intersection ; la puce n'est plus verrouillée sur son affectation précédente
 - Bouton **✎ Modifier les parcours** : ouvre l'éditeur pré-rempli avec tous les parcours actuellement ouverts, pour les modifier/compléter puis relancer la lecture ; une alerte propose d'exporter les puces déjà lues avant de poursuivre
 - Bouton **✕ Fermer ce parcours** avec confirmation d'export CSV si des puces ont été lues sur ce parcours
 - Fermeture groupée de tous les parcours (fermeture de l'onglet du hub) avec confirmation d'export CSV global
@@ -113,3 +122,43 @@
 | **Port série verrouillé** après fermeture de tous les parcours | `self.si.disconnect()` programmé en différé (`after(100, ...)`) mais l'onglet détruit immédiatement après, empêchant son exécution | Déconnexion rendue synchrone et immédiate avant toute destruction de widget |
 | Puce affichée comme "enregistrée" alors que le nom avait été annulé | Pas de vérification après l'appel d'enregistrement | Vérification systématique de la présence réelle de la puce avant de naviguer ou d'afficher un message de succès |
 | Code mort | `_charger_tsv_multi_parcours` dupliquée et jamais appelée | Supprimée avec le nettoyage de `helpers.py` |
+
+---
+
+## Système d'images balises
+
+### Présentation
+
+Fonctionnalité ajoutée sur la branche `si_image`. Permet d'associer des images aux balises d'un parcours et de les afficher sous forme de galerie après la lecture d'une puce.
+
+### Utilisation
+
+1. Dans le panneau de lecture du hub, cliquer sur **"Charger images balises (dossier)"**
+2. Choisir un dossier contenant des images nommées par numéro de balise (ex. `31.jpg`, `42.png`, `54.jpeg`)
+3. Les images sont automatiquement associées : `31.jpg` → balise 31, `42.png` → balise 42, etc.
+4. Après chaque lecture de puce, les balises pointées qui ont une image associée s'affichent en galerie horizontale scrollable en bas du panneau de résultat
+
+### Comportement
+
+- **Formats supportés** : `.png`, `.gif`, `.jpg`, `.jpeg`, `.bmp`, `.webp`
+- **Nommage** : seul le nom sans extension doit être un entier (le numéro de balise) — les autres fichiers du dossier sont ignorés
+- **Chargement d'images** : si Pillow (`PIL`) est installé, tous les formats sont supportés avec redimensionnement de qualité ; sinon, repli sur `tk.PhotoImage` natif (PNG et GIF uniquement)
+- **Galerie** : affichée dans l'ordre des pointages de la puce, scrollable horizontalement, taille unitaire 150 × 120 px
+- **Partage** : le dictionnaire d'images est partagé entre tous les parcours ouverts au moment du chargement, et propagé aux nouveaux parcours ouverts ensuite via `_appliquer_images`
+
+### Fichiers modifiés
+
+| Fichier | Modification |
+|---|---|
+| `main.py` | Attribut `_images_balises`, bouton "Charger images balises", méthode `_hub_charger_images`, propagation aux apps via `_appliquer_images` |
+| `ui_lecture_puce.py` | Paramètre `images_balises` dans `__init__`, méthode `_appliquer_images`, méthode `_charger_photo` (PIL + fallback natif), galerie horizontale dans `_build_passage_section` |
+
+### Structure du dossier images (exemple)
+
+```
+images/Animaux/
+├── 31.jpg      ← morceau balise 31
+├── 32.jpg      ← morceau balise 32
+│   ...
+└── 54.jpg      ← morceau balise 54
+```

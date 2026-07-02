@@ -12,6 +12,7 @@ from datetime import datetime
 from time import sleep
 import threading
 import csv
+import os
 import unicodedata
 
 from sireader2 import SIReaderReadout, SIReaderException
@@ -88,7 +89,7 @@ def parse_candidate_csv(chemin):
 
 
 class AppLecturePuce(tk.Frame):
-    def __init__(self, parent, parcours=None, on_close=None, on_broadcast=None, on_request_reader=None, on_route_puce=None, on_request_move=None, on_export_all=None, on_candidats_loaded=None, read_controls=True):
+    def __init__(self, parent, parcours=None, on_close=None, on_broadcast=None, on_request_reader=None, on_route_puce=None, on_request_move=None, on_export_all=None, on_candidats_loaded=None, images_balises=None, read_controls=True):
         super().__init__(parent)
         self.pack(fill="both", expand=True)
         self._on_close_cb = on_close
@@ -118,6 +119,8 @@ class AppLecturePuce(tk.Frame):
         self._mode_lecture = "libre"  # "libre" | "controlee"
         self._erreur_connexion = False  # True quand la lecture s'est arrêtée sur erreur
         self._last_status_msg = ("", True)
+        self._images_balises = dict(images_balises) if images_balises else {}
+        self._photo_refs = []  # maintient les PhotoImage en vie (évite le garbage collect)
 
         self._build_ui()
         # Comportement de connexion automatique seulement si le widget expose les contrôles
@@ -368,10 +371,16 @@ class AppLecturePuce(tk.Frame):
     def _set_active_btn(self, container):
         """Met en évidence le conteneur actif dans la sidebar via sa couleur de fond."""
         if self._active_btn is not None:
-            self._active_btn.config(bg="#1e1e2e")  # retire le contour
+            try:
+                self._active_btn.config(bg="#1e1e2e")  # retire le contour
+            except Exception:
+                self._active_btn = None
         self._active_btn = container
         if container is not None:
-            container.config(bg="white")  # contour blanc visible
+            try:
+                container.config(bg="white")  # contour blanc visible
+            except Exception:
+                pass
 
     def _build_passage_section(self, parent, card_number, card_data, passage_num, nom=""):
         """Construit une section de passage dans le cadre scrollable de la carte."""
@@ -390,8 +399,10 @@ class AppLecturePuce(tk.Frame):
                 p for p in card_data.get("punches", [])
                 if BALISE_MIN <= p[0] <= BALISE_MAX
             ]
-            balises_pointees = {p[0] for p in punches_terrain if p[0] in balises_set}
             total_attendu = len(self._parcours["balises"])
+            # Marge de 2 erreurs : on n'analyse que les N+2 derniers pointages
+            punches_terrain = punches_terrain[-(total_attendu + 2):]
+            balises_pointees = {p[0] for p in punches_terrain if p[0] in balises_set}
 
             if self._parcours.get("ordre"):
                 seen_ord, sequence_pointee = set(), []
@@ -514,30 +525,29 @@ class AppLecturePuce(tk.Frame):
 
         if self._parcours:
             if self._parcours.get("ordre"):
-                if nb_valides == total_attendu:
+                if nb_valides >= total_attendu:
                     res_bg  = "#27ae60"
-                    res_txt = f"- Parcours réussi - toutes les {total_attendu} balises pointées dans le bon ordre !"
+                    res_txt = "Parcours réussi"
                 elif nb_valides > 0:
                     res_bg  = "#e67e22"
-                    res_txt = (f"-  Parcours correct jusqu'a  la balise {nb_valides}/{total_attendu}"
-           f" - mauvais ordre a  partir de la balise {nb_valides + 1}")
+                    res_txt = "Parcours échoué"
                 else:
                     res_bg  = "#e74c3c"
-                    res_txt = "- Parcours invalide - la première balise n'est pas dans le bon ordre"
+                    res_txt = "Parcours échoué"
             else:
-                if nb_pointes == total_attendu:
+                if nb_pointes >= total_attendu:
                     res_bg  = "#27ae60"
-                    res_txt = f"- Parcours réussi - toutes les {total_attendu} balises pointées !"
+                    res_txt = "Parcours réussi"
                 else:
                     res_bg  = "#e74c3c"
                     manquantes = total_attendu - nb_pointes
-                    res_txt = f"- Parcours incomplet - {nb_pointes}/{total_attendu} balises pointées ({manquantes} manquante(s))"
+                    res_txt = "Parcours échoué"
             res_frame = tk.Frame(parent, bg=res_bg)
-            res_frame.pack(fill="x", padx=10, pady=(4, 0))
+            res_frame.pack(fill="x", padx=10, pady=(6, 0))
             tk.Label(
                 res_frame, text=res_txt,
-                font=("Segoe UI", 9, "bold"), bg=res_bg, fg="white"
-            ).pack(pady=6, padx=10, anchor="w")
+                font=("Segoe UI", 14, "bold"), bg=res_bg, fg="white", anchor="center"
+            ).pack(pady=12, padx=10, fill="x")
 
         frame_punches = tk.LabelFrame(parent, text="Pointages balises", font=("Segoe UI", 10, "bold"))
         frame_punches.pack(fill="x", **pad)
@@ -579,6 +589,80 @@ class AppLecturePuce(tk.Frame):
             for p in punches_uniques:
                 heure = p[1].strftime("%H:%M:%S") if p[1] else ""
                 tree.insert("", "end", values=(p[0], heure))
+
+        # Galerie d'images -- morceaux en horizontal
+        beacons_avec_image = [
+            (p[0], self._images_balises[p[0]])
+            for p in punches_terrain
+            if p[0] in self._images_balises
+        ]
+        if beacons_avec_image:
+            parcours_avec_ordre = self._parcours and self._parcours.get("ordre")
+            frame_img = tk.LabelFrame(
+                parent, text="Reconstitution du personnage",
+                font=("Segoe UI", 10, "bold")
+            )
+            frame_img.pack(fill="x", **pad)
+
+            if not parcours_avec_ordre:
+                # Parcours sans ordre : cadre scindé 50/50 via grid
+                parcours_valide = self._parcours and nb_pointes >= total_attendu
+                split = tk.Frame(frame_img, bg="white")
+                split.pack(fill="both", expand=True)
+                split.columnconfigure(0, weight=1, uniform="half")
+                split.columnconfigure(2, weight=1, uniform="half")
+                split.rowconfigure(0, weight=1)
+                left_frame = tk.Frame(split, bg="white")
+                left_frame.grid(row=0, column=0, sticky="nsew")
+                ttk.Separator(split, orient="vertical").grid(row=0, column=1, sticky="ns", pady=4)
+                right_frame = tk.Frame(split, bg="white")
+                right_frame.grid(row=0, column=2, sticky="nsew")
+                symbole = "✓" if parcours_valide else "✗"
+                couleur = "#27ae60" if parcours_valide else "#e74c3c"
+                tk.Label(
+                    right_frame, text=symbole,
+                    font=("Segoe UI", 120, "bold"), bg="white", fg=couleur, anchor="center"
+                ).pack(fill="both", expand=True)
+                gal_parent = left_frame
+            else:
+                gal_parent = frame_img
+
+            canvas_gal = tk.Canvas(gal_parent, height=185, bg="white", highlightthickness=0)
+            scroll_gal = tk.Scrollbar(gal_parent, orient="horizontal", command=canvas_gal.xview)
+            canvas_gal.configure(xscrollcommand=scroll_gal.set)
+            scroll_gal.pack(side="bottom", fill="x")
+            canvas_gal.pack(side="left", fill="both", expand=True, padx=4, pady=(4, 0))
+
+            inner_gal = tk.Frame(canvas_gal, bg="white")
+            canvas_gal.create_window((0, 0), window=inner_gal, anchor="nw")
+
+            IMG_W, IMG_H = 150, 120
+            derniere_balise = beacons_avec_image[-1][0] if beacons_avec_image else None
+            for beacon_num, chemin in beacons_avec_image:
+                cell = tk.Frame(inner_gal, bg="white", padx=4, pady=4)
+                cell.pack(side="left", anchor="n")
+                photo = self._charger_photo(chemin, IMG_W, IMG_H)
+                if photo is not None:
+                    self._photo_refs.append(photo)
+                    tk.Label(cell, image=photo, bg="white").pack()
+                else:
+                    tk.Label(
+                        cell, text=f"Balise {beacon_num} N/A",
+                        bg="#f0f0f0", width=10, height=5,
+                        font=("Segoe UI", 8), fg="#888"
+                    ).pack()
+                tk.Label(
+                    cell, text=f"Balise {beacon_num}",
+                    font=("Segoe UI", 7), bg="white", fg="#aaa"
+                ).pack()
+                if beacon_num == derniere_balise:
+                    tk.Label(
+                        cell, text="Dernière balise",
+                        font=("Segoe UI", 7, "bold"), bg="white", fg="black"
+                    ).pack()
+
+            inner_gal.update_idletasks()
+            canvas_gal.configure(scrollregion=canvas_gal.bbox("all"))
 
     #  Connexion a  la station
     def _connect_station(self):
@@ -812,39 +896,43 @@ class AppLecturePuce(tk.Frame):
         """Demande un nom (1ère lecture) puis crée ou complète le panneau de la carte."""
         is_new = card_number not in self._card_passages
         if is_new:
-            # Recherche robuste du candidat dans la table (différents types de clé possibles)
-            candidat = None
-            try:
-                candidat = self._liste_candidats.get(card_number)
-            except Exception:
-                candidat = None
-            if candidat is None:
-                try:
-                    candidat = self._liste_candidats.get(int(card_number))
-                except Exception:
-                    pass
-            if candidat is None:
-                try:
-                    candidat = self._liste_candidats.get(str(card_number))
-                except Exception:
-                    pass
-
-            if candidat:
-                prenom  = str(candidat.get("prenom", "")).strip()
-                nom_fam = str(candidat.get("nom", "")).strip()
-                nom = f"{prenom} {nom_fam}".strip() or str(card_number)
-                nom_base, i = nom, 1
-                while nom in self._noms.values():
-                    i += 1
-                    nom = f"{nom_base} ({i})"
+            if card_number in self._noms:
+                # Nom pré-injecté depuis une autre app (même puce, parcours différent)
+                nom = self._noms[card_number]
             else:
-                nom = self._demander_nom(card_number)
-                if nom is None:  # app fermée ou lecture annulée
-                    self._lire_en_cours = False
-                    (event_to_set or self._card_event).set()
-                    self._safe_after(0, lambda: self._reset_bouton())
-                    return
-            self._noms[card_number] = nom
+                # Recherche robuste du candidat dans la table (différents types de clé possibles)
+                candidat = None
+                try:
+                    candidat = self._liste_candidats.get(card_number)
+                except Exception:
+                    candidat = None
+                if candidat is None:
+                    try:
+                        candidat = self._liste_candidats.get(int(card_number))
+                    except Exception:
+                        pass
+                if candidat is None:
+                    try:
+                        candidat = self._liste_candidats.get(str(card_number))
+                    except Exception:
+                        pass
+
+                if candidat:
+                    prenom  = str(candidat.get("prenom", "")).strip()
+                    nom_fam = str(candidat.get("nom", "")).strip()
+                    nom = f"{prenom} {nom_fam}".strip() or str(card_number)
+                    nom_base, i = nom, 1
+                    while nom in self._noms.values():
+                        i += 1
+                        nom = f"{nom_base} ({i})"
+                else:
+                    nom = self._demander_nom(card_number)
+                    if nom is None:  # app fermée ou lecture annulée
+                        self._lire_en_cours = False
+                        (event_to_set or self._card_event).set()
+                        self._safe_after(0, lambda: self._reset_bouton())
+                        return
+                self._noms[card_number] = nom
         else:
             nom = self._noms[card_number]
 
@@ -924,20 +1012,26 @@ class AppLecturePuce(tk.Frame):
                 if hasattr(self, "btn_exporter_tous") and self.btn_exporter_tous is not None:
                     self.btn_exporter_tous.pack(fill="x", padx=10, pady=(0, 6), ipady=6)
             self.lbl_sidebar.config(text=f"Puces : {len(self._frames)}")
-        else:
-            ttk.Separator(
-                self._frame_inners[card_number], orient="horizontal"
-            ).pack(fill="x", padx=10, pady=(12, 0))
-
         frame_inner = self._frame_inners[card_number]
         canvas = self._frame_canvases[card_number]
-        self._build_passage_section(frame_inner, card_number, card_data, passage, nom)
 
-        # Auto-scroll vers le bas pour voir le nouveau passage
-        if passage > 1:
-            frame_inner.update_idletasks()
-            canvas.configure(scrollregion=canvas.bbox("all"))
-            canvas.yview_moveto(1.0)
+        # Chaque passage est inséré en tête pour un affichage décroissant (plus récent en haut)
+        # pack_slaves() retourne l'ordre visuel pack (haut→bas), contrairement à winfo_children()
+        pack_top = frame_inner.pack_slaves()
+        passage_frame = tk.Frame(frame_inner, bg="white")
+        if pack_top:
+            passage_frame.pack(fill="x", before=pack_top[0])
+            sep = ttk.Separator(frame_inner, orient="horizontal")
+            sep.pack(fill="x", padx=10, pady=(0, 4), before=pack_top[0])
+        else:
+            passage_frame.pack(fill="x")
+
+        self._build_passage_section(passage_frame, card_number, card_data, passage, nom)
+
+        # Scroll vers le haut pour voir le passage le plus récent
+        frame_inner.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.yview_moveto(0.0)
 
         self._afficher_frame(self._frames[card_number])
         self._set_active_btn(self._sidebar_btns[card_number])
@@ -1187,6 +1281,10 @@ class AppLecturePuce(tk.Frame):
         except Exception:
             pass
 
+    def _appliquer_images(self, images):
+        """Applique un dict {balise: chemin} d'images reçu depuis le hub."""
+        self._images_balises = dict(images)
+
     def _count_max_punches(self):
         """Retourne le nombre max de pointages terrain sur toutes les puces de cet onglet."""
         max_p = 0
@@ -1407,6 +1505,26 @@ class AppLecturePuce(tk.Frame):
         if isinstance(val, datetime):
             return val.strftime("%d/%m/%Y %H:%M:%S")
         return str(val)
+
+    def _charger_photo(self, chemin, max_w, max_h):
+        """Charge et redimensionne une image. Utilise PIL si disponible, sinon tkinter natif (PNG/GIF)."""
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(chemin)
+            img.thumbnail((max_w, max_h), Image.LANCZOS)
+            return ImageTk.PhotoImage(img)
+        except ImportError:
+            ext = os.path.splitext(chemin)[1].lower()
+            if ext not in ('.png', '.gif'):
+                return None
+            photo = tk.PhotoImage(file=chemin)
+            w, h = photo.width(), photo.height()
+            if w > max_w or h > max_h:
+                scale = max(w // max_w, h // max_h, 1)
+                photo = photo.subsample(scale, scale)
+            return photo
+        except Exception:
+            return None
 
     def _safe_after(self, ms, func):
         """Appel after() sécurisé : ignoré si l'app est en cours de destruction."""
