@@ -75,6 +75,15 @@
 - **Indicateur "Dernière balise"** : sous la dernière image de la galerie, un texte en gras signale la balise finale pointée
 - **Conservation du nom entre parcours** : quand une même puce est relue sur un parcours différent, le nom déjà saisi est réutilisé automatiquement sans redemander
 
+### Modifications UI/UX
+
+- **Suppression du bloc info puce** : le cadre affichant le type et le numéro de la puce a été retiré — seul le nom du participant est conservé
+- **Réduction des polices** : nom du parcours 14→11, label "Temps:" 11→9, durée 16→13, bandeau résultat 14→11
+- **Suppression du 50/50 pour les parcours sans ordre** : le ✓/✗ agrandi n'est plus affiché ; la galerie occupe toute la largeur
+- **Limite d'affichage à 10 balises** : seules les 10 dernières balises pointées sont affichées dans le tableau
+- **Redimensionnement des images** : 150×120 → 90×75 px pour que 10 images tiennent dans la largeur du bloc galerie
+- **Message de connexion simplifié** : `_set_status` n'affiche plus que `"Connecté sur le port X"` — tous les messages opérationnels intermédiaires ont été supprimés
+
 ### Corrections
 
 | Problème | Cause | Solution |
@@ -85,6 +94,7 @@
 | Le label "candidats chargés" ne se mettait pas à jour | Seule la diffusion vers les autres onglets mettait à jour le label, pas le chargement local | Mise à jour immédiate ajoutée |
 | `AttributeError` en mode hub lors d'une erreur de connexion | `btn_reconnecter` n'existe qu'en mode autonome ; des appels y accédaient sans vérifier son existence | Appels sécurisés via une méthode dédiée (`_pack_reconnecter`) |
 | `TclError: invalid command name` au changement de parcours | `_set_active_btn` tentait de reconfigurer un widget sidebar appartenant à une autre app (détruite) | Appels `.config()` protégés par `try/except` |
+| Bouton "Connexion..." bloqué indéfiniment sans reader | `SIReaderReadout()` tentait d'ouvrir chaque port Bluetooth (2s/port) sans possibilité d'annuler | Pré-vérification instantanée via `list_ports.comports()` + bouton "Annuler" affiché dès le début de la tentative |
 
 ---
 
@@ -108,6 +118,13 @@
 - Fermeture groupée de tous les parcours (fermeture de l'onglet du hub) avec confirmation d'export CSV global
 - Déplacement manuel d'une puce d'un parcours vers un autre via une boîte de dialogue dédiée
 - Export CSV unique regroupant tous les parcours du hub, avec en-têtes harmonisés sur le nombre maximal de balises parmi tous les parcours
+
+### Modifications UI/UX
+
+- **Bouton "Menu"** : le bouton de navigation gauche s'appelle désormais "Menu" (anciennement "Lecture")
+- **Liste candidats persistante** : la liste chargée reste active même après modification des parcours (`_hub_candidats` stocké au niveau `MainApp`, appliqué à chaque nouvel onglet)
+- **Messages de connexion épurés** : `_hub_lbl_status` n'affiche plus que `"Connecté sur le port X"` — les messages intermédiaires ("Posez la puce...", "Puce enregistrée...", etc.) ont été supprimés
+- **Gestion du reader absent** : clic sur "Attendre une puce" sans reader → bouton gris "Connexion..." + bouton "Annuler" immédiat ; si la connexion échoue → bouton rouge "Relancer" ; `_hub_reset_btn_lecture` force l'état "Relancer" si le bouton était en "Connexion..." lors de l'arrêt
 
 ### Corrections
 
