@@ -436,31 +436,7 @@ class AppLecturePuce(tk.Frame):
             ordre_invalide   = None
 
         if passage_num == 1:
-            frame_info = tk.LabelFrame(parent, text="Informations puce", font=("Segoe UI", 10, "bold"))
-            frame_info.pack(fill="x", **pad)
-
-            infos = [
-                ("Participant :",              nom if nom else ""),
-                ("Numéro puce :",             str(card_number)),
-                ("Date de lecture :",         now),
-                ("Balises (ordre) :" if self._parcours and self._parcours.get("ordre")
-                 else "Balises pointées :",   f"{nb_pointes} / {total_attendu}"),
-            ]
-            candidat_info = self._liste_candidats.get(card_number)
-            if candidat_info:
-                if candidat_info.get("categorie"):
-                    infos.append(("Catégorie :", candidat_info["categorie"]))
-                if candidat_info.get("infos"):
-                    infos.append(("Groupe :", candidat_info["infos"]))
-            lbl_participant = None
-            for row, (label, valeur) in enumerate(infos):
-                tk.Label(frame_info, text=label, font=("Segoe UI", 9, "bold"), anchor="w").grid(
-                    row=row, column=0, sticky="w", padx=8, pady=2)
-                lbl = tk.Label(frame_info, text=valeur, font=("Segoe UI", 9), anchor="w", fg="#222")
-                lbl.grid(row=row, column=1, sticky="w", padx=8, pady=2)
-                if row == 0:
-                    lbl_participant = lbl
-            self._lbl_participant[card_number] = lbl_participant
+            self._lbl_participant[card_number] = None
 
         frame_temps = tk.LabelFrame(parent, text="Temps", font=("Segoe UI", 10, "bold"))
         frame_temps.pack(fill="x", **pad)
@@ -497,7 +473,7 @@ class AppLecturePuce(tk.Frame):
         sep1.grid(row=0, column=1, rowspan=3, sticky="ns", padx=6)
 
         # Center column  parcours (middle row)
-        lbl_parcours = tk.Label(inner, text=parcours_nom, font=("Segoe UI", 14, "bold"), fg="#000")
+        lbl_parcours = tk.Label(inner, text=parcours_nom, font=("Segoe UI", 11, "bold"), fg="#000")
         lbl_parcours.grid(row=1, column=2, sticky="nsew", padx=6)
 
         # Vertical separator
@@ -510,8 +486,8 @@ class AppLecturePuce(tk.Frame):
         # Centrer horizontalement le contenu du bloc temps
         inner_time = tk.Frame(right_col, bg=right_col.cget("bg"))
         inner_time.pack(expand=True)
-        tk.Label(inner_time, text="Temps :", font=("Segoe UI", 11, "bold"), fg="#000").pack(side="left")
-        tk.Label(inner_time, text=duree_str, font=("Segoe UI", 16, "bold"), fg="#000").pack(side="left", padx=(8,0))    
+        tk.Label(inner_time, text="Temps :", font=("Segoe UI", 9, "bold"), fg="#000").pack(side="left")
+        tk.Label(inner_time, text=duree_str, font=("Segoe UI", 13, "bold"), fg="#000").pack(side="left", padx=(8,0))    
 
         # Make columns 0,2,4 take equal space
         inner.grid_columnconfigure(0, weight=1)
@@ -546,14 +522,14 @@ class AppLecturePuce(tk.Frame):
             res_frame.pack(fill="x", padx=10, pady=(6, 0))
             tk.Label(
                 res_frame, text=res_txt,
-                font=("Segoe UI", 14, "bold"), bg=res_bg, fg="white", anchor="center"
+                font=("Segoe UI", 11, "bold"), bg=res_bg, fg="white", anchor="center"
             ).pack(pady=12, padx=10, fill="x")
 
         frame_punches = tk.LabelFrame(parent, text="Pointages balises", font=("Segoe UI", 10, "bold"))
         frame_punches.pack(fill="x", **pad)
 
         cols = ("Balise", "Heure")
-        tree = ttk.Treeview(frame_punches, columns=cols, show="headings", height=8)
+        tree = ttk.Treeview(frame_punches, columns=cols, show="headings", height=10)
         for col in cols:
             tree.heading(col, text=col)
             tree.column(col, width=180, anchor="center")
@@ -567,7 +543,7 @@ class AppLecturePuce(tk.Frame):
         last_punch: dict = {}
         for p in punches_terrain:
             last_punch[p[0]] = p
-        punches_uniques = list(last_punch.values())
+        punches_uniques = list(last_punch.values())[-10:]
 
         if self._parcours:
             tree.tag_configure("ok",    foreground="white", background="#27ae60")
@@ -604,28 +580,7 @@ class AppLecturePuce(tk.Frame):
             )
             frame_img.pack(fill="x", **pad)
 
-            if not parcours_avec_ordre:
-                # Parcours sans ordre : cadre scindé 50/50 via grid
-                parcours_valide = self._parcours and nb_pointes >= total_attendu
-                split = tk.Frame(frame_img, bg="white")
-                split.pack(fill="both", expand=True)
-                split.columnconfigure(0, weight=1, uniform="half")
-                split.columnconfigure(2, weight=1, uniform="half")
-                split.rowconfigure(0, weight=1)
-                left_frame = tk.Frame(split, bg="white")
-                left_frame.grid(row=0, column=0, sticky="nsew")
-                ttk.Separator(split, orient="vertical").grid(row=0, column=1, sticky="ns", pady=4)
-                right_frame = tk.Frame(split, bg="white")
-                right_frame.grid(row=0, column=2, sticky="nsew")
-                symbole = "✓" if parcours_valide else "✗"
-                couleur = "#27ae60" if parcours_valide else "#e74c3c"
-                tk.Label(
-                    right_frame, text=symbole,
-                    font=("Segoe UI", 120, "bold"), bg="white", fg=couleur, anchor="center"
-                ).pack(fill="both", expand=True)
-                gal_parent = left_frame
-            else:
-                gal_parent = frame_img
+            gal_parent = frame_img
 
             canvas_gal = tk.Canvas(gal_parent, height=185, bg="white", highlightthickness=0)
             scroll_gal = tk.Scrollbar(gal_parent, orient="horizontal", command=canvas_gal.xview)
@@ -636,7 +591,7 @@ class AppLecturePuce(tk.Frame):
             inner_gal = tk.Frame(canvas_gal, bg="white")
             canvas_gal.create_window((0, 0), window=inner_gal, anchor="nw")
 
-            IMG_W, IMG_H = 150, 120
+            IMG_W, IMG_H = 90, 75
             derniere_balise = beacons_avec_image[-1][0] if beacons_avec_image else None
             for beacon_num, chemin in beacons_avec_image:
                 cell = tk.Frame(inner_gal, bg="white", padx=4, pady=4)
@@ -772,7 +727,6 @@ class AppLecturePuce(tk.Frame):
 
         if self.si is None:
             # Mode partagé sans connexion active : connecter puis lire
-            self._set_status("Connexion a  la station...", ok=True)
             threading.Thread(target=self._connecter_puis_lire, daemon=True).start()
         else:
             self._set_status("Posez la puce sur la station...", ok=True)
@@ -780,6 +734,14 @@ class AppLecturePuce(tk.Frame):
 
     def _connecter_puis_lire(self):
         """Connexion + lecture en un seul thread (mode partagé)."""
+        try:
+            import serial.tools.list_ports as _lp
+            if not list(_lp.comports()):
+                self._erreur_connexion = True
+                self._safe_after(0, lambda: self._reset_bouton(erreur=True))
+                return
+        except Exception:
+            pass
         try:
             si_nouveau = SIReaderReadout()
             if self._closing or not self._lire_en_cours:
@@ -800,18 +762,18 @@ class AppLecturePuce(tk.Frame):
                     pass
                 self._erreur_connexion = True
                 self._safe_after(0, lambda: self._set_status(
-                    f"Station mal configurée : {e}. Cliquez sur 'Relancer'.", ok=False))
+                    f"Station mal configurée : {e}.", ok=False))
                 self._safe_after(0, lambda: self._reset_bouton(erreur=True))
                 return
             self.si = si_nouveau
             port = si_nouveau.port
             self._safe_after(0, lambda: self._set_status(
-                f"Connecté sur {port} posez la puce...", ok=True))
+                f"Connecté sur le port {port}", ok=True))
             self._lire_puce()
         except Exception as e:
             self._erreur_connexion = True
             self._safe_after(0, lambda: self._set_status(
-                f"Erreur connexion : {e}. Cliquez sur 'Relancer'.", ok=False))
+                f"Erreur connexion : {e}.", ok=False))
             self._safe_after(0, lambda: self._reset_bouton(erreur=True))
 
     def _release_reader(self):
@@ -884,7 +846,7 @@ class AppLecturePuce(tk.Frame):
                 err = str(e)
                 self._erreur_connexion = True
                 self._safe_after(0, lambda er=err: self._set_status(
-                    f"Connexion perdue : {er}. Cliquez sur 'Relancer'.", ok=False))
+                    f"Connexion perdue : {er}.", ok=False))
                 self._safe_after(0, lambda: self._pack_reconnecter())
                 self._safe_after(0, lambda: self._reset_bouton(erreur=True))
                 return

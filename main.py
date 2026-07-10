@@ -54,6 +54,7 @@ class MainApp:
         self._hub_btn_charger_images = None
         self._hub_lbl_images = None
         self._images_balises = {}         # beacon_number (int) -> chemin fichier image
+        self._hub_candidats = {}          # candidats chargés (persistant entre modifications)
         self._hub_mode = "libre"
         self._hub_app_en_ecoute = None    # App physiquement en train de lire
 
@@ -275,6 +276,8 @@ class MainApp:
             images_balises=self._images_balises,
         )
         app_ref[0] = app_lecture
+        if self._hub_candidats:
+            app_lecture._appliquer_candidats(self._hub_candidats)
         app_lecture.pack_forget()
         app_lecture.place_forget()
 
@@ -331,7 +334,7 @@ class MainApp:
         ).pack(anchor="w", padx=10, pady=(10, 2))
 
         self._hub_btn_lecture = tk.Button(
-            nav, text="▶  Lecture",
+            nav, text="▶  Menu",
             font=("Segoe UI", 9, "bold"), relief="flat", cursor="hand2",
             bg="#1a73e8", fg="white",
             activebackground="#1558b0", activeforeground="white",
@@ -512,6 +515,7 @@ class MainApp:
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible de charger le fichier :\n{e}", parent=self.root)
             return
+        self._hub_candidats = candidats
         nb = len(candidats)
         self._hub_lbl_liste.config(text=f"✓  {nb} candidat(s) chargé(s)", fg="#27ae60")
         for app in self._hub_apps:
@@ -588,12 +592,17 @@ class MainApp:
         except Exception:
             pass
 
-        self._hub_btn_attendre.config(
-            state="disabled", text="Lecture en cours...",
-            bg="#1a73e8", activebackground="#1558b0",
-        )
+        self._hub_btn_attendre.config(state="disabled")
+        if app_lecteur.si is not None:
+            self._hub_btn_attendre.config(
+                text="Lecture en cours...", bg="#1a73e8", activebackground="#1558b0",
+            )
+        else:
+            self._hub_btn_attendre.config(
+                text="Connexion...", bg="#888", activebackground="#636e72",
+            )
+        # Annuler disponible immédiatement (connexion peut être longue sur Bluetooth)
         self._hub_btn_annuler.pack(fill="x", padx=10, pady=(0, 10), ipady=6, after=self._hub_btn_attendre)
-        self._hub_lbl_status.config(text="Posez la puce sur la station...", fg="#1a73e8")
 
         try:
             app_lecteur._demarrer_lecture()
@@ -632,11 +641,7 @@ class MainApp:
         except Exception:
             pass
         try:
-            if en_erreur and app is not None:
-                msg, ok = getattr(app, "_last_status_msg", ("Connexion perdue. Cliquez sur 'Relancer'.", False))
-                self._hub_lbl_status.config(text=msg, fg="#e74c3c")
-            elif not en_erreur:
-                self._hub_lbl_status.config(text="")
+            self._hub_lbl_status.config(text="")
         except Exception:
             pass
 
@@ -829,8 +834,17 @@ class MainApp:
             return
         try:
             msg, ok = getattr(app, "_last_status_msg", ("", True))
-            if msg and getattr(self, "_hub_lbl_status", None):
-                self._hub_lbl_status.config(text=msg, fg="#27ae60" if ok else "#e74c3c")
+            if msg and ok and "le port" in msg:
+                # Connexion réussie : afficher le port et passer en état de lecture
+                if getattr(self, "_hub_lbl_status", None):
+                    self._hub_lbl_status.config(text=msg, fg="#27ae60")
+                try:
+                    if self._hub_btn_attendre.cget("text") == "Connexion...":
+                        self._hub_btn_attendre.config(
+                            text="Lecture en cours...", bg="#1a73e8", activebackground="#1558b0",
+                        )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -1164,11 +1178,6 @@ class MainApp:
             self._hub_refresh_list()
         except Exception:
             pass
-        try:
-            if getattr(self, "_hub_lbl_status", None):
-                self._hub_lbl_status.config(text="Puce enregistrée. Posez la prochaine puce...", fg="#27ae60")
-        except Exception:
-            pass
 
     def _hub_ouvrir_validation(self, source_app, card_number, card_data, app_suggeree):
         """Mode contrôlée : ouvre une fenêtre de validation avant d'enregistrer la puce.
@@ -1350,11 +1359,6 @@ class MainApp:
             # ne pas naviguer vers le parcours cible — traiter comme une annulation.
             enregistree = card_number in cible._frames
             if not enregistree and not deja_present_avant:
-                try:
-                    if getattr(self, "_hub_lbl_status", None):
-                        self._hub_lbl_status.config(text="Puce annulée. Posez la prochaine puce...", fg="#e67e22")
-                except Exception:
-                    pass
                 return
             try:
                 if self._lecture_hub_tab is not None:
@@ -1363,18 +1367,8 @@ class MainApp:
                 self._hub_refresh_list()
             except Exception:
                 pass
-            try:
-                if getattr(self, "_hub_lbl_status", None):
-                    self._hub_lbl_status.config(text="Puce enregistrée. Posez la prochaine puce...", fg="#27ae60")
-            except Exception:
-                pass
         else:
             # Annulé : la puce n'est pas enregistrée, on débloque simplement le thread de lecture
-            try:
-                if getattr(self, "_hub_lbl_status", None):
-                    self._hub_lbl_status.config(text="Puce annulée. Posez la prochaine puce...", fg="#e67e22")
-            except Exception:
-                pass
             source_app._card_event.set()
 
     def _on_card_broadcast(self, source_app, card_number, card_data, nom):
