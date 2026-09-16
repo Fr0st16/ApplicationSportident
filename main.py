@@ -1187,6 +1187,7 @@ class MainApp:
         par score), et la liste des balises pointées. Valider enregistre la puce
         dans le parcours choisi ; Annuler ne fait rien (comme si non lue)."""
         from core.constants import BALISE_MIN, BALISE_MAX
+        from core.validation import evaluer_ordre, statut_balise
 
         self._lecture_apps = [a for a in self._lecture_apps if a.winfo_exists()]
         parcours_apps = [a for a in self._lecture_apps if a._parcours]
@@ -1267,34 +1268,13 @@ class MainApp:
             selon le parcours actuellement choisi dans le menu déroulant."""
             if app_cible is None or not app_cible._parcours:
                 return {code: "hors" for code, _ in punches}
-            balises_attendues = app_cible._parcours.get("balises", [])
-            balises_set = set(balises_attendues)
+            ordre_valide = ordre_invalide = None
             if app_cible._parcours.get("ordre"):
-                seen_ord = set()
-                sequence_pointee = []
-                for code, _ in punches:
-                    if code in balises_set and code not in seen_ord:
-                        seen_ord.add(code)
-                        sequence_pointee.append(code)
-                nb_valides = 0
-                for i, bal in enumerate(sequence_pointee):
-                    if i < len(balises_attendues) and bal == balises_attendues[i]:
-                        nb_valides += 1
-                    else:
-                        break
-                ordre_valide = set(sequence_pointee[:nb_valides])
-                ordre_invalide = set(sequence_pointee[nb_valides:])
-                tags = {}
-                for code, _ in punches:
-                    if code in ordre_valide:
-                        tags[code] = "ok"
-                    elif code in ordre_invalide:
-                        tags[code] = "ordre"
-                    else:
-                        tags[code] = "hors"
-                return tags
-            else:
-                return {code: ("ok" if code in balises_set else "hors") for code, _ in punches}
+                _, ordre_valide, ordre_invalide = evaluer_ordre(punches, app_cible._parcours["balises"])
+            return {
+                code: statut_balise(code, app_cible._parcours, ordre_valide, ordre_invalide)
+                for code, _ in punches
+            }
 
         def _remplir_tree():
             tree.delete(*tree.get_children())

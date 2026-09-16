@@ -17,6 +17,7 @@ import unicodedata
 
 from sireader2 import SIReaderReadout, SIReaderException
 from core.constants import BALISE_MIN, BALISE_MAX
+from core.validation import evaluer_ordre, statut_balise, resultat_parcours
 
 
 def parse_candidate_csv(chemin):
@@ -402,21 +403,10 @@ class AppLecturePuce(tk.Frame):
             balises_pointees = {p[0] for p in punches_terrain if p[0] in balises_set}
 
             if self._parcours.get("ordre"):
-                seen_ord, sequence_pointee = set(), []
-                for p in punches_terrain:
-                    if p[0] in balises_set and p[0] not in seen_ord:
-                        seen_ord.add(p[0])
-                        sequence_pointee.append(p[0])
-                balises_attendues = self._parcours["balises"]
-                nb_valides = 0
-                for i, bal in enumerate(sequence_pointee):
-                    if i < len(balises_attendues) and bal == balises_attendues[i]:
-                        nb_valides += 1
-                    else:
-                        break
-                ordre_valide   = set(sequence_pointee[:nb_valides])
-                ordre_invalide = set(sequence_pointee[nb_valides:])
-                nb_pointes     = nb_valides
+                nb_valides, ordre_valide, ordre_invalide = evaluer_ordre(
+                    punches_terrain, self._parcours["balises"]
+                )
+                nb_pointes = nb_valides
             else:
                 ordre_valide   = None
                 ordre_invalide = None
@@ -497,24 +487,9 @@ class AppLecturePuce(tk.Frame):
         inner.grid_rowconfigure(2, weight=1)
 
         if self._parcours:
-            if self._parcours.get("ordre"):
-                if nb_valides >= total_attendu:
-                    res_bg  = "#27ae60"
-                    res_txt = "Parcours réussi"
-                elif nb_valides > 0:
-                    res_bg  = "#e67e22"
-                    res_txt = "Parcours échoué"
-                else:
-                    res_bg  = "#e74c3c"
-                    res_txt = "Parcours échoué"
-            else:
-                if nb_pointes >= total_attendu:
-                    res_bg  = "#27ae60"
-                    res_txt = "Parcours réussi"
-                else:
-                    res_bg  = "#e74c3c"
-                    manquantes = total_attendu - nb_pointes
-                    res_txt = "Parcours échoué"
+            res_bg, res_txt = resultat_parcours(
+                nb_pointes, total_attendu, bool(self._parcours.get("ordre"))
+            )
             res_frame = tk.Frame(parent, bg=res_bg)
             res_frame.pack(fill="x", padx=10, pady=(6, 0))
             tk.Label(
@@ -548,15 +523,7 @@ class AppLecturePuce(tk.Frame):
             tree.tag_configure("hors",  foreground="white", background="#e74c3c")
             for p in punches_uniques:
                 heure = p[1].strftime("%H:%M:%S") if p[1] else ""
-                if ordre_valide is not None:
-                    if p[0] in ordre_valide:
-                        tag = "ok"
-                    elif p[0] in ordre_invalide:
-                        tag = "ordre"
-                    else:
-                        tag = "hors"
-                else:
-                    tag = "ok" if p[0] in balises_set else "hors"
+                tag = statut_balise(p[0], self._parcours, ordre_valide, ordre_invalide)
                 tree.insert("", "end", values=(p[0], heure), tags=(tag,))
         else:
             for p in punches_uniques:
@@ -1261,26 +1228,14 @@ class AppLecturePuce(tk.Frame):
         if not self._parcours:
             return [None] * len(punches_terrain)
 
-        balises_set = set(self._parcours["balises"])
-
+        ordre_valide = ordre_invalide = None
         if self._parcours.get("ordre"):
-            # Même algorithme de validation que _build_passage_section
-            seen_ord, sequence_pointee = set(), []
-            for p in punches_terrain:
-                if p[0] in balises_set and p[0] not in seen_ord:
-                    seen_ord.add(p[0])
-                    sequence_pointee.append(p[0])
-            balises_attendues = self._parcours["balises"]
-            nb_valides = 0
-            for i, bal in enumerate(sequence_pointee):
-                if i < len(balises_attendues) and bal == balises_attendues[i]:
-                    nb_valides += 1
-                else:
-                    break
-            ordre_valide = set(sequence_pointee[:nb_valides])
-            return ["ok" if p[0] in ordre_valide else "bad" for p in punches_terrain]
-        else:
-            return ["ok" if p[0] in balises_set else "bad" for p in punches_terrain]
+            _, ordre_valide, ordre_invalide = evaluer_ordre(punches_terrain, self._parcours["balises"])
+
+        return [
+            "ok" if statut_balise(p[0], self._parcours, ordre_valide, ordre_invalide) == "ok" else "bad"
+            for p in punches_terrain
+        ]
 
     def _build_csv_rows(self, max_punches):
         """Génère les lignes CSV pour toutes les puces de cet onglet.
