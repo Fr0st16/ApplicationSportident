@@ -210,37 +210,40 @@ class MainApp:
         if not chemin:
             return
         try:
-            from ui_parcours import AppParcours
+            from io_.parcours_parsers import (
+                parser_lot_tsv, parser_lot_csv, parser_csv_intelligent,
+                parser_ocad_xml, parser_ocad_txt,
+            )
             ext = os.path.splitext(chemin)[1].lower()
             lots = []
             if ext == ".tsv":
-                lots = AppParcours._parser_lot_tsv(chemin)
+                lots = parser_lot_tsv(chemin)
             elif ext == ".csv":
                 try:
-                    lots = AppParcours._parser_lot_csv(chemin)
+                    lots = parser_lot_csv(chemin)
                 except Exception:
                     lots = []
                 if not lots:
-                    nom, bal = AppParcours._parser_csv_intelligent(chemin)
+                    nom, bal = parser_csv_intelligent(chemin)
                     if bal:
                         lots = [{"nom": nom, "balises": bal, "ordre": False}]
             elif ext == ".xml":
-                lots = AppParcours._parser_ocad_xml(chemin)
+                lots = parser_ocad_xml(chemin)
             elif ext == ".txt":
-                lots = AppParcours._parser_ocad_txt(chemin)
+                lots = parser_ocad_txt(chemin)
             else:
                 try:
-                    lots = AppParcours._parser_lot_tsv(chemin)
+                    lots = parser_lot_tsv(chemin)
                 except Exception:
                     lots = []
                 if not lots:
                     try:
-                        lots = AppParcours._parser_lot_csv(chemin)
+                        lots = parser_lot_csv(chemin)
                     except Exception:
                         lots = []
                 if not lots:
                     try:
-                        lots = AppParcours._parser_ocad_xml(chemin)
+                        lots = parser_ocad_xml(chemin)
                     except Exception:
                         lots = []
             valides = [p for p in lots if p.get("balises")]
