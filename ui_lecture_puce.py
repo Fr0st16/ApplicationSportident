@@ -16,10 +16,7 @@ import os
 import unicodedata
 
 from sireader2 import SIReaderReadout, SIReaderException
-
-# Constants
-BALISE_MIN = 31
-BALISE_MAX = 256
+from core.constants import BALISE_MIN, BALISE_MAX
 
 
 def parse_candidate_csv(chemin):

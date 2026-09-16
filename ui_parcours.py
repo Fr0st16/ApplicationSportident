@@ -8,17 +8,8 @@ from tkinter import ttk, messagebox, filedialog
 import os
 import csv as _csv_module
 from datetime import datetime
-#  Constantes
-BALISE_MIN = 31
-BALISE_MAX = 256
-BALISES_TOUTES = list(range(BALISE_MIN, BALISE_MAX + 1))  # 226 balises (31-256)
-GRID_COLS = 18
-# Presets : nombre de balises - liste (à partir de BALISE_MIN)
-PRESETS = {
-    10: list(range(31, 41)),
-    24: list(range(31, 55)),
-    26: list(range(31, 57)),
-}
+
+from core.constants import BALISE_MIN, BALISE_MAX, BALISES_TOUTES, GRID_COLS, PRESETS
 
 
 class AppParcours(tk.Frame):

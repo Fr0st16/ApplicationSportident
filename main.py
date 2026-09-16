@@ -1125,7 +1125,7 @@ class MainApp:
     def _on_puce_routed(self, source_app, card_number, card_data):
         self._lecture_apps = [a for a in self._lecture_apps if a.winfo_exists()]
 
-        from ui_lecture_puce import BALISE_MIN, BALISE_MAX
+        from core.constants import BALISE_MIN, BALISE_MAX
         punches = {
             p[0] for p in card_data.get("punches", [])
             if isinstance(p[0], int) and BALISE_MIN <= p[0] <= BALISE_MAX
@@ -1186,7 +1186,7 @@ class MainApp:
         déroulant pour choisir/changer le parcours de destination (pré-sélectionné
         par score), et la liste des balises pointées. Valider enregistre la puce
         dans le parcours choisi ; Annuler ne fait rien (comme si non lue)."""
-        from ui_lecture_puce import BALISE_MIN, BALISE_MAX
+        from core.constants import BALISE_MIN, BALISE_MAX
 
         self._lecture_apps = [a for a in self._lecture_apps if a.winfo_exists()]
         parcours_apps = [a for a in self._lecture_apps if a._parcours]
