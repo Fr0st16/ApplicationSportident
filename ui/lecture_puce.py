@@ -11,85 +11,31 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from time import sleep
 import threading
-import csv
 import os
-import unicodedata
 
 from sireader2 import SIReaderReadout, SIReaderException
-
-# Constants
-BALISE_MIN = 31
-BALISE_MAX = 256
-
-
-def parse_candidate_csv(chemin):
-    """Parse a candidate CSV file (semicolon-delimited) and return dict[num] = {...}.
-
-    Tries common encodings and normalizes header names to detect columns.
-    """
-
-    def _normaliser(s):
-        return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode().lower().strip()
-
-    candidats = {}
-    succes = False
-    erreur = "Encodage du fichier non reconnu."
-
-    for encoding in ("utf-8-sig", "latin-1", "cp1252"):
-        try:
-            with open(chemin, newline="", encoding=encoding) as f:
-                reader = csv.DictReader(f, delimiter=";")
-                rows = list(reader)
-            fieldnames = reader.fieldnames or []
-
-            def find_col(noms_cibles, fns=fieldnames):
-                for cible in noms_cibles:
-                    for fn in fns:
-                        if _normaliser(fn) == cible:
-                            return fn
-                return None
-
-            col_puce   = find_col(["puces", "puce", "chip", "card", "numero", "numero puce"])
-            col_prenom = find_col(["prenom", "firstname", "first name"])
-            col_nom    = find_col(["nom", "name", "lastname", "last name"])
-            col_cat    = find_col(["categorie", "category"])
-            col_infos  = find_col(["infos", "info", "groupe", "group"])
-
-            if col_puce is None:
-                erreur = "Colonne 'Puces' introuvable dans le fichier CSV."
-                succes = False
-                break
-
-            for row in rows:
-                try:
-                    num = int(str(row.get(col_puce, "")).strip())
-                except (ValueError, TypeError):
-                    continue
-                prenom    = str(row.get(col_prenom, "") or "").strip() if col_prenom else ""
-                nom_fam   = str(row.get(col_nom,    "") or "").strip() if col_nom    else ""
-                categorie = str(row.get(col_cat,    "") or "").strip() if col_cat    else ""
-                infos_val = str(row.get(col_infos,  "") or "").strip() if col_infos  else ""
-                candidats[num] = {
-                    "prenom":    prenom,
-                    "nom":       nom_fam,
-                    "categorie": categorie,
-                    "infos":     infos_val,
-                }
-            succes = True
-            break
-        except UnicodeDecodeError:
-            continue
-        except Exception as e:
-            erreur = str(e)
-            break
-
-    if not succes:
-        raise ValueError(erreur)
-    return candidats
+from core.constants import BALISE_MIN, BALISE_MAX
+from core.validation import evaluer_ordre, statut_balise, resultat_parcours
+from io_.candidats_csv import parse_candidate_csv
+from io_.export_csv import count_max_punches, build_csv_rows, write_csv
 
 
 class AppLecturePuce(tk.Frame):
+    """Onglet de lecture de puces SI pour un parcours donné (ou None = lecture
+    libre) : connexion à la station (autonome ou pilotée par le hub), thread
+    de lecture, affichage des passages avec validation d'ordre, export CSV."""
+
     def __init__(self, parent, parcours=None, on_close=None, on_broadcast=None, on_request_reader=None, on_route_puce=None, on_request_move=None, on_export_all=None, on_candidats_loaded=None, images_balises=None, read_controls=True):
+        """Un onglet de lecture pour un parcours (ou None = lecture libre).
+
+        Deux modes selon les callbacks fournis :
+        - Autonome (`read_controls=True`, callbacks absents) : gère sa propre
+          connexion série et ses propres boutons de lecture.
+        - Piloté par le hub (`read_controls=False` + callbacks `on_request_reader`/
+          `on_route_puce`/...) : le hub (HubMixin) possède la connexion physique
+          unique au lecteur SI et route chaque puce lue vers le bon onglet via
+          ces callbacks.
+        """
         super().__init__(parent)
         self.pack(fill="both", expand=True)
         self._on_close_cb = on_close
@@ -148,6 +94,8 @@ class AppLecturePuce(tk.Frame):
 
     #  Construction de l'interface
     def _build_ui(self):
+        """Construit la sidebar (liste des puces lues) et la zone de contenu
+        principale de l'onglet."""
         # Barre de statut uniquement en mode autonome (pas dans le hub)
         if self._read_controls and self._on_request_reader is None:
             frame_status = tk.Frame(self, bg="#2c2c2c")
@@ -340,6 +288,7 @@ class AppLecturePuce(tk.Frame):
             pass
 
     def _afficher_tab_lecture(self):
+        """Affiche le panneau "Attendre une puce" (mode autonome uniquement)."""
         if self.tab_lecture is None:
             return
         self._afficher_frame(self.tab_lecture)
@@ -392,7 +341,6 @@ class AppLecturePuce(tk.Frame):
                 font=("Segoe UI", 9, "bold"), bg="white", fg="#1a73e8"
             ).pack(anchor="w", padx=10, pady=(8, 0))
 
-        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         if self._parcours:
             balises_set = set(self._parcours["balises"])
             punches_terrain = [
@@ -405,21 +353,10 @@ class AppLecturePuce(tk.Frame):
             balises_pointees = {p[0] for p in punches_terrain if p[0] in balises_set}
 
             if self._parcours.get("ordre"):
-                seen_ord, sequence_pointee = set(), []
-                for p in punches_terrain:
-                    if p[0] in balises_set and p[0] not in seen_ord:
-                        seen_ord.add(p[0])
-                        sequence_pointee.append(p[0])
-                balises_attendues = self._parcours["balises"]
-                nb_valides = 0
-                for i, bal in enumerate(sequence_pointee):
-                    if i < len(balises_attendues) and bal == balises_attendues[i]:
-                        nb_valides += 1
-                    else:
-                        break
-                ordre_valide   = set(sequence_pointee[:nb_valides])
-                ordre_invalide = set(sequence_pointee[nb_valides:])
-                nb_pointes     = nb_valides
+                nb_valides, ordre_valide, ordre_invalide = evaluer_ordre(
+                    punches_terrain, self._parcours["balises"]
+                )
+                nb_pointes = nb_valides
             else:
                 ordre_valide   = None
                 ordre_invalide = None
@@ -500,24 +437,9 @@ class AppLecturePuce(tk.Frame):
         inner.grid_rowconfigure(2, weight=1)
 
         if self._parcours:
-            if self._parcours.get("ordre"):
-                if nb_valides >= total_attendu:
-                    res_bg  = "#27ae60"
-                    res_txt = "Parcours réussi"
-                elif nb_valides > 0:
-                    res_bg  = "#e67e22"
-                    res_txt = "Parcours échoué"
-                else:
-                    res_bg  = "#e74c3c"
-                    res_txt = "Parcours échoué"
-            else:
-                if nb_pointes >= total_attendu:
-                    res_bg  = "#27ae60"
-                    res_txt = "Parcours réussi"
-                else:
-                    res_bg  = "#e74c3c"
-                    manquantes = total_attendu - nb_pointes
-                    res_txt = "Parcours échoué"
+            res_bg, res_txt = resultat_parcours(
+                nb_pointes, total_attendu, bool(self._parcours.get("ordre"))
+            )
             res_frame = tk.Frame(parent, bg=res_bg)
             res_frame.pack(fill="x", padx=10, pady=(6, 0))
             tk.Label(
@@ -551,15 +473,7 @@ class AppLecturePuce(tk.Frame):
             tree.tag_configure("hors",  foreground="white", background="#e74c3c")
             for p in punches_uniques:
                 heure = p[1].strftime("%H:%M:%S") if p[1] else ""
-                if ordre_valide is not None:
-                    if p[0] in ordre_valide:
-                        tag = "ok"
-                    elif p[0] in ordre_invalide:
-                        tag = "ordre"
-                    else:
-                        tag = "hors"
-                else:
-                    tag = "ok" if p[0] in balises_set else "hors"
+                tag = statut_balise(p[0], self._parcours, ordre_valide, ordre_invalide)
                 tree.insert("", "end", values=(p[0], heure), tags=(tag,))
         else:
             for p in punches_uniques:
@@ -573,7 +487,6 @@ class AppLecturePuce(tk.Frame):
             if p[0] in self._images_balises
         ]
         if beacons_avec_image:
-            parcours_avec_ordre = self._parcours and self._parcours.get("ordre")
             frame_img = tk.LabelFrame(
                 parent, text="Reconstitution du personnage",
                 font=("Segoe UI", 10, "bold")
@@ -621,6 +534,8 @@ class AppLecturePuce(tk.Frame):
 
     #  Connexion a  la station
     def _connect_station(self):
+        """Lance dans un thread la connexion (autonome) à la station SI et
+        sa configuration en protocole étendu + mode lecture, sans bloquer l'UI."""
         self.btn_lire.config(state="disabled")
         # Nettoyer l'ancienne connexion si elle existe
         if self.si is not None:
@@ -633,6 +548,7 @@ class AppLecturePuce(tk.Frame):
         self.btn_reconnecter.pack_forget()
 
         def _try_connect():
+            """Corps du thread de connexion (bloquant, tourne hors du thread UI)."""
             try:
                 si_nouveau = SIReaderReadout()
                 # Garde-fou : si la fermeture a eu lieu pendant la connexion
@@ -649,12 +565,12 @@ class AppLecturePuce(tk.Frame):
                     if si_nouveau.proto_config.get('mode') != si_nouveau.M_READOUT:
                         si_nouveau.set_operating_mode(si_nouveau.M_READOUT)
                 except SIReaderException as e:
+                    erreur_msg = f"Station mal configurée : {e}"
                     try:
                         si_nouveau.disconnect()
                     except Exception:
                         pass
-                    self._safe_after(0, lambda: self._set_status(
-                        f"Station mal configurée : {e}", ok=False))
+                    self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
                     self._safe_after(0, lambda: self.btn_lire.config(state="disabled"))
                     self._safe_after(0, lambda: self._pack_reconnecter())
                     return
@@ -663,12 +579,17 @@ class AppLecturePuce(tk.Frame):
                 self._safe_after(0, lambda: self._set_status(f"Connecté sur {port}", ok=True))
                 self._safe_after(0, lambda: self.btn_lire.config(state="normal"))
             except Exception as e:
-                self._safe_after(0, lambda: self._set_status(f"Erreur connexion : {e}", ok=False))
+                erreur_msg = f"Erreur connexion : {e}"
+                self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
                 self._safe_after(0, lambda: self.btn_lire.config(state="disabled"))
                 self._safe_after(0, lambda: self._pack_reconnecter())
         threading.Thread(target=_try_connect, daemon=True).start()
 
     def _set_status(self, msg, ok=True):
+        """Met à jour le message de statut (vert si `ok`, rouge sinon). En mode
+        autonome, met à jour le label local ; dans tous les cas, émet un
+        événement Tkinter `<<AppStatus>>` pour que le hub puisse aussi
+        l'afficher dans son panneau global."""
         if self._closing:
             return
         try:
@@ -704,6 +625,8 @@ class AppLecturePuce(tk.Frame):
 
     #  Lecture puce
     def _demarrer_lecture(self):
+        """Démarre l'attente d'une puce (bouton "Attendre une puce") : réclame
+        le lecteur partagé si on est dans le hub, puis lance le thread de lecture."""
         if self._on_request_reader:
             # Mode partagé : libérer les autres onglets avant de prendre le lecteur
             self._on_request_reader(self)
@@ -756,13 +679,13 @@ class AppLecturePuce(tk.Frame):
                 if si_nouveau.proto_config.get('mode') != si_nouveau.M_READOUT:
                     si_nouveau.set_operating_mode(si_nouveau.M_READOUT)
             except SIReaderException as e:
+                erreur_msg = f"Station mal configurée : {e}."
                 try:
                     si_nouveau.disconnect()
                 except Exception:
                     pass
                 self._erreur_connexion = True
-                self._safe_after(0, lambda: self._set_status(
-                    f"Station mal configurée : {e}.", ok=False))
+                self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
                 self._safe_after(0, lambda: self._reset_bouton(erreur=True))
                 return
             self.si = si_nouveau
@@ -771,9 +694,9 @@ class AppLecturePuce(tk.Frame):
                 f"Connecté sur le port {port}", ok=True))
             self._lire_puce()
         except Exception as e:
+            erreur_msg = f"Erreur connexion : {e}."
             self._erreur_connexion = True
-            self._safe_after(0, lambda: self._set_status(
-                f"Erreur connexion : {e}.", ok=False))
+            self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
             self._safe_after(0, lambda: self._reset_bouton(erreur=True))
 
     def _release_reader(self):
@@ -963,6 +886,7 @@ class AppLecturePuce(tk.Frame):
             menu.add_command(label="Déplacer vers...", command=lambda cn=card_number: self._demander_deplacement(cn))  
 
             def _popup(e, m=menu):
+                """Affiche le menu contextuel (clic droit) au point de clic."""
                 try:
                     m.tk_popup(e.x_root, e.y_root)
                 finally:
@@ -1051,6 +975,7 @@ class AppLecturePuce(tk.Frame):
             annule = [False]
 
             def valider(event=None):
+                """Valide le nom saisi (refuse un nom vide ou déjà utilisé)."""
                 valeur = entry.get().strip()
                 if not valeur:
                     self._lbl_erreur_nom.config(text="Le nom ne peut pas être vide.")
@@ -1062,6 +987,7 @@ class AppLecturePuce(tk.Frame):
                 dialog.destroy()
 
             def annuler(event=None):
+                """Ferme le dialogue sans nom (la lecture de cette puce est abandonnée)."""
                 annule[0] = True
                 dialog.destroy()
 
@@ -1131,6 +1057,7 @@ class AppLecturePuce(tk.Frame):
         lbl_err.pack()
 
         def valider(event=None):
+            """Valide le nouveau nom saisi (refuse un nom vide ou déjà pris)."""
             nouveau = entry.get().strip()
             if not nouveau:
                 lbl_err.config(text="Le nom ne peut pas être vide.")
@@ -1209,6 +1136,8 @@ class AppLecturePuce(tk.Frame):
             pass
 
     def _charger_liste_candidats(self):
+        """Ouvre un CSV candidats (numéro de puce → nom/catégorie/infos) et
+        l'applique localement, puis le diffuse aux autres onglets du hub."""
         chemin = filedialog.askopenfilename(
             title="Charger la liste des candidats",
             filetypes=[("Fichier CSV", "*.csv"), ("Tous les fichiers", "*.*")]
@@ -1247,119 +1176,6 @@ class AppLecturePuce(tk.Frame):
         """Applique un dict {balise: chemin} d'images reçu depuis le hub."""
         self._images_balises = dict(images)
 
-    def _count_max_punches(self):
-        """Retourne le nombre max de pointages terrain sur toutes les puces de cet onglet."""
-        max_p = 0
-        for passages in self._card_data.values():
-            for data in passages:
-                n = len([p for p in data.get("punches", []) if BALISE_MIN <= p[0] <= BALISE_MAX])
-                if n > max_p:
-                    max_p = n
-        return max_p
-
-    def _get_punch_statuses(self, punches_terrain):
-        """Retourne la liste des statuts pour chaque pointage terrain.
-
-        """
-        if not self._parcours:
-            return [None] * len(punches_terrain)
-
-        balises_set = set(self._parcours["balises"])
-
-        if self._parcours.get("ordre"):
-            # Même algorithme de validation que _build_passage_section
-            seen_ord, sequence_pointee = set(), []
-            for p in punches_terrain:
-                if p[0] in balises_set and p[0] not in seen_ord:
-                    seen_ord.add(p[0])
-                    sequence_pointee.append(p[0])
-            balises_attendues = self._parcours["balises"]
-            nb_valides = 0
-            for i, bal in enumerate(sequence_pointee):
-                if i < len(balises_attendues) and bal == balises_attendues[i]:
-                    nb_valides += 1
-                else:
-                    break
-            ordre_valide = set(sequence_pointee[:nb_valides])
-            return ["ok" if p[0] in ordre_valide else "bad" for p in punches_terrain]
-        else:
-            return ["ok" if p[0] in balises_set else "bad" for p in punches_terrain]
-
-    def _build_csv_rows(self, max_punches):
-        """Génère les lignes CSV pour toutes les puces de cet onglet.
-
-        Colonnes : Numéro puce | Participant | Parcours | Nb postes | Passage |
-                   Départ | Arrivée | Temps course | [Balise i | Temps i]...
-
-        Pour un parcours défini : n'exporte que les balises effectivement pointées,
-        triées par numéro croissant. Si une balise pointée n'appartient pas au
-        parcours attendu, la colonne temps contiendra "PM" (poste manquant).
-        """
-        parcours_nom = self._parcours["nom"] if self._parcours else "Lecture libre"
-        parcours_set = set(self._parcours.get("balises", [])) if self._parcours else set()
-        nb_postes    = len(self._parcours["balises"]) if self._parcours else ""
-        rows = []
-        for card_number, passages in self._card_data.items():
-            nom = self._noms.get(card_number, "")
-            for passage_num, data in enumerate(passages, start=1):
-                punches = [
-                    p for p in data.get("punches", [])
-                    if BALISE_MIN <= p[0] <= BALISE_MAX
-                ]
-                # Dédupliquer : garder le dernier pointage pour chaque balise
-                last_punch = {}
-                for p in punches:
-                    last_punch[p[0]] = p[1]
-
-                # Statuts des pointages (utile en mode 'ordre')  on garde le statut
-                # correspondant a  la dernière occurrence de chaque balise.
-                punch_status_by_code = {}
-                if self._parcours:
-                    statuses = self._get_punch_statuses(punches)
-                    for (p, st) in zip(punches, statuses):
-                        punch_status_by_code[p[0]] = st
-
-                start  = data.get("start")
-                finish = data.get("finish")
-                if isinstance(start, datetime) and isinstance(finish, datetime):
-                    delta    = finish - start
-                    total_s  = int(delta.total_seconds())
-                    h, rem   = divmod(abs(total_s), 3600)
-                    m, s     = divmod(rem, 60)
-                    temps_course = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-                else:
-                    temps_course = ""
-
-                row = [
-                    card_number,
-                    nom,
-                    parcours_nom,
-                    nb_postes,
-                    passage_num,
-                    self._fmt_time(start),
-                    self._fmt_time(finish),
-                    temps_course,
-                ]
-
-                # Utiliser uniquement les balises réellement pointées, triées numériquement
-                balises_pointes = sorted(last_punch.keys())
-                for b in balises_pointes:
-                    row.append(str(b))
-                    if self._parcours and b not in parcours_set:
-                        row.append("PM")
-                    # En mode 'ordre', si le pointage est hors-séquence, indiquer PM
-                    elif self._parcours and self._parcours.get("ordre") and punch_status_by_code.get(b) != "ok":        
-                        row.append("PM")
-                    else:
-                        t = last_punch.get(b)
-                        row.append(t.strftime("%H:%M:%S") if t else "")
-
-                # Compléter pour atteindre max_punches
-                row += [""] * ((max_punches - len(balises_pointes)) * 2)
-
-                rows.append(row)
-        return rows
-
     def _exporter_csv(self):
         """Exporte toutes les puces de cet onglet dans un fichier CSV.
 
@@ -1375,18 +1191,9 @@ class AppLecturePuce(tk.Frame):
         )
         if not chemin:
             return False
-        max_punches = self._count_max_punches()
-        # En-tête générique : Balise 1, Temps 1 ... selon max_punches
-        header = ["Numéro puce", "Participant", "Parcours", "Nb postes", "Passage",
-                  "Départ", "Arrivée", "Temps course"]
-        for i in range(1, max_punches + 1):
-            header += [f"Balise {i}", f"Temps {i}"]
-
-        with open(chemin, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(header)
-            for row in self._build_csv_rows(max_punches):
-                writer.writerow(row)
+        max_punches = count_max_punches(self._card_data)
+        rows = build_csv_rows(self._card_data, self._noms, self._parcours, max_punches)
+        write_csv(chemin, max_punches, rows)
         self._set_status(f"Export CSV enregistré : {chemin}", ok=True)
         return True
 
@@ -1462,6 +1269,7 @@ class AppLecturePuce(tk.Frame):
 
     #  Utilitaires
     def _fmt_time(self, val):
+        """Formate un datetime en `dd/mm/YYYY HH:MM:SS`, "" si absent."""
         if val is None:
             return ""
         if isinstance(val, datetime):
@@ -1498,6 +1306,8 @@ class AppLecturePuce(tk.Frame):
             pass
 
     def _reset_bouton(self, erreur=False):
+        """Remet le bouton "Attendre une puce" en état repos ; le désactive
+        si la lecture s'est arrêtée sur une erreur de connexion."""
         if self._closing:
             return
         try:

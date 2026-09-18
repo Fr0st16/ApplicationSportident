@@ -8,22 +8,24 @@ from tkinter import ttk, messagebox, filedialog
 import os
 import csv as _csv_module
 from datetime import datetime
-#  Constantes
-BALISE_MIN = 31
-BALISE_MAX = 256
-BALISES_TOUTES = list(range(BALISE_MIN, BALISE_MAX + 1))  # 226 balises (31-256)
-GRID_COLS = 18
-# Presets : nombre de balises - liste (à partir de BALISE_MIN)
-PRESETS = {
-    10: list(range(31, 41)),
-    24: list(range(31, 55)),
-    26: list(range(31, 57)),
-}
+
+from core.constants import BALISE_MIN, BALISE_MAX, BALISES_TOUTES, GRID_COLS, PRESETS
+from io_.parcours_parsers import (
+    parser_csv_intelligent,
+    parser_ocad_xml,
+    parser_ocad_txt,
+    parser_lot_tsv,
+)
 
 
 class AppParcours(tk.Frame):
+    """Éditeur de parcours : grille de sélection des 226 balises possibles,
+    import/export TSV/CSV/OCAD, et gestion d'un lot multi-parcours."""
 
     def __init__(self, parent, on_done=None, on_cancel=None, initial_lot=None):
+        """Éditeur de parcours : grille de sélection des balises + gestion
+        d'un lot multi-parcours. `initial_lot` pré-remplit le lot (utilisé
+        pour rouvrir l'éditeur sur les parcours déjà ouverts dans le hub)."""
         super().__init__(parent, bg="white")
         self.pack(fill="both", expand=True)
         self._on_done = on_done
@@ -56,6 +58,8 @@ class AppParcours(tk.Frame):
                 pass
 
     def _build_ui(self):
+        """Construit toute l'interface : en-tête, grille de balises (responsive,
+        sélection au drag), panneau lot multi-parcours, et barre d'actions."""
         entete = tk.Frame(self, bg="#1e1e2e")
         entete.pack(fill="x")
         tk.Label(
@@ -237,6 +241,7 @@ class AppParcours(tk.Frame):
         )
 
         def _on_grille_scroll(ev):
+            """Molette (Windows delta ou Linux Button-4/5) sur la grille de balises."""
             if getattr(ev, "num", None) == 4:
                 self._grille_canvas.yview_scroll(-1, "units")
             elif getattr(ev, "num", None) == 5:
@@ -262,6 +267,7 @@ class AppParcours(tk.Frame):
         # Responsive : la frame interne suit la largeur exacte du canvas
 
         def _on_canvas_configure(e):
+            """Recalcule le nombre de colonnes quand la fenêtre est redimensionnée."""
             self._grille_canvas.itemconfig(self._grille_canvas_win_id, width=e.width)
             self._adapter_grille_cols(e.width)
         self._grille_canvas.bind("<Configure>", _on_canvas_configure)
@@ -444,6 +450,7 @@ class AppParcours(tk.Frame):
         self._rafraichir_grille()
 
     def _tout_effacer(self):
+        """Vide la sélection de balises courante."""
         self._est_sauvegarde = False
         self._balises_sel.clear()
         self._balises_ordre.clear()
@@ -451,6 +458,8 @@ class AppParcours(tk.Frame):
         self._rafraichir_grille()
 
     def _toggle_balise(self, n):
+        """Ajoute/retire la balise `n` de la sélection (respecte la limite
+        d'un preset actif, le cas échéant)."""
         self._est_sauvegarde = False
         if n in self._balises_sel:
             self._balises_sel.discard(n)
@@ -596,6 +605,7 @@ class AppParcours(tk.Frame):
         return True
 
     def _get_data(self):
+        """Retourne l'état courant de l'éditeur sous forme {nom, balises, ordre}."""
         return {
             "nom": self._entry_nom.get().strip() or "parcours",
             "balises": list(self._balises_ordre),  # ordre de sélection préservé
@@ -603,6 +613,8 @@ class AppParcours(tk.Frame):
         }
 
     def _choisir_chemin(self, data):
+        """Ouvre la boîte de dialogue "Enregistrer sous" pré-remplie du nom
+        de parcours et de la date, retourne le chemin choisi (ou "")."""
         nom_fichier = f"{data['nom']}_{datetime.now().strftime('%d-%m-%Y')}.tsv"
         return filedialog.asksaveasfilename(
             defaultextension=".tsv",
@@ -613,6 +625,7 @@ class AppParcours(tk.Frame):
         )
 
     def _sauvegarder(self, chemin, data):
+        """Écrit un parcours au format .tsv (même format lu par parser_lot_tsv)."""
         with open(chemin, "w", encoding="utf-8", newline="") as f:
             f.write(f"# {data['nom']}\n")
             if data.get("ordre"):
@@ -621,6 +634,8 @@ class AppParcours(tk.Frame):
                 f.write(f"{b}\n")
 
     def _enregistrer(self):
+        """Bouton "Enregistrer TSV" : enregistre le lot s'il y en a un, sinon
+        le parcours unique en cours d'édition (après validation)."""
         if self._lot:
             self._enregistrer_lot_tsv()
             return
@@ -640,6 +655,7 @@ class AppParcours(tk.Frame):
         self._est_sauvegarde = True
 
     def _enregistrer_csv(self):
+        """Bouton "Enregistrer CSV" : équivalent de _enregistrer mais au format CSV."""
         if self._lot:
             self._enregistrer_lot_csv()
             return
@@ -673,36 +689,6 @@ class AppParcours(tk.Frame):
         self._est_sauvegarde = True
     # TSV : chargement
 
-    @staticmethod
-    def _parser_tsv(chemin):
-        """Lit un fichier .tsv parcours et retourne {nom, balises, ordre}."""
-        nom, balises, ordre = "", [], False
-        with open(chemin, newline="", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("#"):
-                    content = line[1:].strip()
-                    if content.lower().startswith("ordre:"):
-                        val = content.split(":", 1)[1].strip().lower()
-                        ordre = val in ("oui", "yes", "true", "1")
-                    elif not nom:
-                        nom = content
-                elif line.isdigit():
-                    balises.append(int(line))
-        # Dédupliquer en préservant l'ordre
-        seen, balises_uniques = set(), []
-        for b in balises:
-            if b not in seen:
-                seen.add(b)
-                balises_uniques.append(b)
-        return {
-            "nom": nom or os.path.splitext(os.path.basename(chemin))[0],
-            "balises": balises_uniques,
-            "ordre": ordre,
-        }
-
     def _charger_fichier(self):
         """Ouvre un .tsv (simple ou multi-parcours) et peuple l'interface."""
         chemin = filedialog.askopenfilename(
@@ -713,7 +699,7 @@ class AppParcours(tk.Frame):
         if not chemin:
             return
         try:
-            lots = self._parser_lot_tsv(chemin)
+            lots = parser_lot_tsv(chemin)
         except Exception as e:
             messagebox.showerror(
                 "Erreur", f"Impossible de lire le fichier :\n{e}", parent=self
@@ -760,7 +746,7 @@ class AppParcours(tk.Frame):
         if not chemin:
             return
         try:
-            nom, balises = self._parser_csv_intelligent(chemin)
+            nom, balises = parser_csv_intelligent(chemin)
         except Exception as e:
             messagebox.showerror(
                 "Erreur", f"Impossible de lire le fichier :\n{e}", parent=self
@@ -792,91 +778,6 @@ class AppParcours(tk.Frame):
         self._lbl_status.config(
             text=f"Import CSV : {len(self._balises_sel)} balise(s) chargée(s)"
         )
-
-    @staticmethod
-    def _parser_csv_intelligent(chemin):
-        """
-        Analyse intelligente d'un fichier CSV quelconque.
-        Détecte le séparateur, cherche un nom de parcours et collecte
-        toutes les valeurs entières valides (BALISE_MIN-BALISE_MAX) dans l'ordre de lecture.
-        Retourne (nom: str, balises: list[int]).
-        """
-        # 1. Détecter le séparateur le plus fréquent
-        with open(chemin, encoding="utf-8-sig", errors="replace") as f:
-            sample = f.read(8192)
-        sep_counts = {sep: sample.count(sep) for sep in (";", ",", "\t", "|")}
-        sep = (
-            max(sep_counts, key=sep_counts.get) if max(sep_counts.values()) > 0 else ","
-        )
-        # 2. Lire toutes les lignes
-        with open(chemin, newline="", encoding="utf-8-sig", errors="replace") as f:
-            rows = list(_csv_module.reader(f, delimiter=sep))
-        if not rows:
-            return os.path.splitext(os.path.basename(chemin))[0], []
-        # 3. Chercher un nom de parcours
-        nom = os.path.splitext(os.path.basename(chemin))[0]
-        _mots_cles_nom = {"nom", "name", "parcours", "course", "titre", "title"}
-        _mots_cles_col = {
-            "balise",
-            "beacon",
-            "station",
-            "temps",
-            "time",
-            "heure",
-            "passage",
-            "départ",
-            "arrivée",
-            "start",
-            "finish",
-            "participant",
-            "puce",
-            "chip",
-            "numéro",
-            "numero",
-        }
-        header = [c.strip().lower() for c in rows[0]]
-        nom_trouve = False
-        # Cas 1 : format clé-valeur -> rows[0] = ["Nom", "Mon Parcours"]
-        if not nom_trouve and len(rows[0]) >= 2:
-            key = rows[0][0].strip().lower()
-            if key in _mots_cles_nom:
-                candidate = rows[0][1].strip()
-                if candidate:
-                    nom = candidate
-                    nom_trouve = True
-        # Cas 2 : format tabulaire -> en-têtes en ligne 0, valeurs en ligne 1
-        if not nom_trouve:
-            for i, h in enumerate(header):
-                if h in _mots_cles_nom and len(rows) > 1 and i < len(rows[1]):
-                    candidate = rows[1][i].strip()
-                    if candidate:
-                        nom = candidate
-                        nom_trouve = True
-                        break
-        # Cas 3 : première cellule non-numérique et non-générique
-        if not nom_trouve:
-            first_cell = rows[0][0].strip() if rows[0] else ""
-            if first_cell and first_cell.lower() not in _mots_cles_col:
-                try:
-                    int(first_cell)
-                except ValueError:
-                    nom = first_cell
-        # 4. Collecter toutes les valeurs entières valides dans l'ordre de lecture
-        balises_vues = []
-        balises_set = set()
-        for row in rows:
-            for cell in row:
-                cell = cell.strip()
-                if not cell:
-                    continue
-                try:
-                    val = int(float(cell)) if "." in cell else int(cell)
-                    if BALISE_MIN <= val <= BALISE_MAX and val not in balises_set:
-                        balises_set.add(val)
-                        balises_vues.append(val)
-                except (ValueError, OverflowError):
-                    pass
-        return nom, balises_vues
 
     def _dialogue_import_csv(self, nom_defaut, balises):
         """
@@ -972,6 +873,7 @@ class AppParcours(tk.Frame):
         barre.pack(fill="x", side="bottom")
 
         def _ok():
+            """Valide l'import CSV avec le nom/ordre éventuellement modifiés."""
             result[0] = (
                 var_nom.get().strip() or nom_defaut,
                 list(balises),
@@ -980,6 +882,7 @@ class AppParcours(tk.Frame):
             dlg.destroy()
 
         def _annuler():
+            """Ferme le dialogue d'import sans rien importer."""
             dlg.destroy()
         tk.Button(
             barre,
@@ -1026,9 +929,9 @@ class AppParcours(tk.Frame):
         try:
             ext = os.path.splitext(chemin)[1].lower()
             lots = (
-                self._parser_ocad_xml(chemin)
+                parser_ocad_xml(chemin)
                 if ext == ".xml"
-                else self._parser_ocad_txt(chemin)
+                else parser_ocad_txt(chemin)
             )
         except Exception as e:
             messagebox.showerror(
@@ -1079,164 +982,6 @@ class AppParcours(tk.Frame):
             self._lbl_status.config(
                 text=f"Lot OCAD importé : {len(lots)} parcours - {os.path.basename(chemin)}"
             )
-
-    @staticmethod
-    def _parser_ocad_xml(chemin):
-        """
-        Parse un fichier IOF XML OCAD (v2.0.3 ou v3.0).
-        Gère l'absence de namespace (exports OCAD classiques) et la structure
-        <CourseVariation> de certaines versions.
-        Retourne une liste de dicts {nom, balises, ordre}.
-        """
-        import xml.etree.ElementTree as ET
-        import re
-        tree = ET.parse(chemin)
-        root = tree.getroot()
-        # Extraire le namespace depuis le tag racine ({uri}LocalName)
-        m = re.match(r"\{(.+?)\}", root.tag)
-        ns_uri = m.group(1) if m else ""
-
-        def tag(name):
-            return f"{{{ns_uri}}}{name}" if ns_uri else name
-        if "3.0" in ns_uri:
-            version = 3
-        elif "2.0" in ns_uri:
-            version = 2
-        else:
-            # Pas de namespace : lire <IOFVersion version="..."/>
-            iof_el = root.find(tag("IOFVersion"))
-            if iof_el is not None:
-                v = iof_el.get("version", "")
-                version = 3 if v.startswith("3") else 2
-            elif root.find(".//CourseControl") is not None:
-                version = 3
-            else:
-                version = 2
-        lots = []
-        if version == 3:
-            for course in root.iter(tag("Course")):
-                name_el = course.find(tag("Name"))
-                nom = (
-                    name_el.text.strip()
-                    if name_el is not None and name_el.text
-                    else "Parcours"
-                )
-                balises = []
-                for cc in course.findall(tag("CourseControl")):
-                    if cc.get("type", "Control") in ("Start", "Finish", "MapIssue"):
-                        continue
-                    ctrl = cc.find(tag("Control"))
-                    if ctrl is None:
-                        continue
-                    id_el = ctrl.find(tag("Id"))
-                    if id_el is None or not id_el.text:
-                        continue
-                    try:
-                        num = int(id_el.text.strip())
-                        if BALISE_MIN <= num <= BALISE_MAX:
-                            balises.append(num)
-                    except ValueError:
-                        pass
-                if balises:
-                    lots.append({"nom": nom, "balises": balises, "ordre": True})
-        else:
-            # IOF XML v2 (format OCAD classique) :
-            # Chaque <Course> contient un ou plusieurs <CourseVariation> avec des
-            # <CourseControl> (<Sequence> + <ControlCode>).
-            # L'ordre OCAD est toujours obligatoire.
-            for course in root.iter(tag("Course")):
-                name_el = course.find(tag("CourseName"))
-                nom = (
-                    name_el.text.strip()
-                    if name_el is not None and name_el.text
-                    else "Parcours"
-                )
-                pairs = []  # liste de (sequence, code)
-                for cc in course.iter(tag("CourseControl")):
-                    code_el = cc.find(tag("ControlCode"))
-                    seq_el = cc.find(tag("Sequence"))
-                    if code_el is None or not code_el.text:
-                        continue
-                    try:
-                        num = int(code_el.text.strip())
-                        if not (BALISE_MIN <= num <= BALISE_MAX):
-                            continue
-                        seq = (
-                            int(seq_el.text.strip())
-                            if seq_el is not None and seq_el.text
-                            else 0
-                        )
-                        pairs.append((seq, num))
-                    except ValueError:
-                        pass
-                if pairs:
-                    pairs.sort(key=lambda x: x[0])
-                    balises = [num for _, num in pairs]
-                    lots.append({"nom": nom, "balises": balises, "ordre": True})
-        # (fichier contenant uniquement la liste des balises disponibles sur le terrain)
-        if not lots:
-            balises, seen = [], set()
-            for ctrl in root.iter(tag("Control")):
-                code_el = ctrl.find(tag("ControlCode"))
-                if code_el is None or not code_el.text:
-                    continue
-                try:
-                    num = int(code_el.text.strip())
-                    if BALISE_MIN <= num <= BALISE_MAX and num not in seen:
-                        seen.add(num)
-                        balises.append(num)
-                except ValueError:
-                    pass
-            if balises:
-                nom_f = os.path.splitext(os.path.basename(chemin))[0]
-                lots.append(
-                    {
-                        "nom": nom_f,
-                        "balises": balises,
-                        "ordre": False,
-                        "_fallback": True,
-                    }
-                )
-        return lots
-
-    @staticmethod
-    def _parser_ocad_txt(chemin):
-        """
-        Parse un fichier 'Export Courses Text' OCAD.
-        Format : Nom\tLongueur\tDéniv\tNbCtrl\tS1-31-42-53-...-F1
-        Retourne une liste de dicts {nom, balises, ordre}.
-        """
-        lines = []
-        for encoding in ("utf-8-sig", "latin-1", "cp1252"):
-            try:
-                with open(chemin, encoding=encoding) as f:
-                    lines = f.readlines()
-                break
-            except UnicodeDecodeError:
-                continue
-        lots = []
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                continue
-            nom = parts[0].strip()
-            # La séquence de balises est toujours dans la dernière colonne
-            seq_str = parts[-1].strip()
-            balises = []
-            for token in seq_str.split("-"):
-                token = token.strip()
-                try:
-                    num = int(token)
-                    if BALISE_MIN <= num <= BALISE_MAX:
-                        balises.append(num)
-                except ValueError:
-                    pass  # Ignorer S1, F1, et distances
-            if balises:
-                lots.append({"nom": nom, "balises": balises, "ordre": True})
-        return lots
 
     def _adapter_grille_cols(self, largeur):
         """Recalcule et applique le nombre de colonnes selon la largeur du canvas."""
@@ -1418,85 +1163,6 @@ class AppParcours(tk.Frame):
             )
             return
 
-    @staticmethod
-    def _parser_lot_tsv(chemin):
-        """Lit un TSV multi-parcours. Retourne list[dict{nom, balises, ordre}]."""
-        lots = []
-        current = None
-        with open(chemin, newline="", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("#"):
-                    content = line[1:].strip()
-                    if content.lower().startswith("ordre:"):
-                        if current:
-                            val = content.split(":", 1)[1].strip().lower()
-                            current["ordre"] = val in ("oui", "yes", "true", "1")
-                    else:
-                        current = {"nom": content, "balises": [], "ordre": False}
-                        lots.append(current)
-                elif line.isdigit():
-                    if current is None:
-                        current = {
-                            "nom": os.path.splitext(os.path.basename(chemin))[0],
-                            "balises": [],
-                            "ordre": False,
-                        }
-                        lots.append(current)
-                    current["balises"].append(int(line))
-        for p in lots:
-            seen, uniq = set(), []
-            for b in p["balises"]:
-                if b not in seen:
-                    seen.add(b)
-                    uniq.append(b)
-            p["balises"] = uniq
-        return lots
-
-    @staticmethod
-    def _parser_lot_csv(chemin):
-        """Lit un CSV multi-parcours (format : Nom;Ordre;Balise 1;...). Retourne list[dict]."""
-        with open(chemin, encoding="utf-8-sig", errors="replace") as f:
-            sample = f.read(4096)
-        sep_counts = {sep: sample.count(sep) for sep in (";", ",", "\t", "|")}
-        sep = (
-            max(sep_counts, key=sep_counts.get) if max(sep_counts.values()) > 0 else ","
-        )
-        with open(chemin, newline="", encoding="utf-8-sig", errors="replace") as f:
-            rows = list(_csv_module.reader(f, delimiter=sep))
-        if not rows:
-            return []
-        header = [c.strip().lower() for c in rows[0]]
-        has_header = header and header[0] in ("nom", "name", "parcours", "course")
-        data_rows = rows[1:] if has_header else rows
-        lots = []
-        for row in data_rows:
-            if not row or not row[0].strip():
-                continue
-            nom = row[0].strip()
-            ordre = len(row) > 1 and row[1].strip().lower() in (
-                "oui",
-                "yes",
-                "true",
-                "1",
-            )
-            balises = []
-            for cell in row[2:]:
-                cell = cell.strip()
-                if not cell:
-                    continue
-                try:
-                    val = int(cell)
-                    if BALISE_MIN <= val <= BALISE_MAX:
-                        balises.append(val)
-                except ValueError:
-                    pass
-            if balises:
-                lots.append({"nom": nom, "balises": balises, "ordre": ordre})
-        return lots
-
     def _lancer_lot(self):
         """Lance la lecture de tous les parcours du lot (un onglet par parcours)."""
         if not self._lot:
@@ -1545,6 +1211,7 @@ class AppParcours(tk.Frame):
             self._on_done(data)
 
     def _annuler(self):
+        """Bouton "Annuler" de l'éditeur : délègue la fermeture de l'onglet à main.py."""
         if self._on_cancel:
             self._on_cancel()
 

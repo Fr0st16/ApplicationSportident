@@ -2,10 +2,65 @@
 
 ## Table des matières
 
-- [ui_parcours.py](#ui_parcourspy)
-- [ui_lecture_puce.py](#ui_lecture_pucepy)
-- [main.py](#mainpy)
+- [Refactorisation (branche `refactoring`)](#refactorisation-branche-refactoring)
+- [ui_parcours.py](#ui_parcourspy) *(historique — voir [table de correspondance](#table-de-correspondance-ancien--nouveau))*
+- [ui_lecture_puce.py](#ui_lecture_pucepy) *(historique — voir [table de correspondance](#table-de-correspondance-ancien--nouveau))*
+- [main.py](#mainpy) *(historique — voir [table de correspondance](#table-de-correspondance-ancien--nouveau))*
 - [Système d'images balises](#système-dimages-balises)
+
+---
+
+## Refactorisation (branche `refactoring`)
+
+À partir de la v1.0.1, le code a été réorganisé pour éliminer les duplications
+et réduire la taille des fichiers (`main.py`, `ui_parcours.py` et
+`ui_lecture_puce.py` dépassaient chacun 1300-1550 lignes). Aucun changement
+de comportement n'était visé : chaque étape a été vérifiée par compilation,
+tests de non-régression et/ou instanciation réelle de l'application avant
+d'être committée.
+
+### Nouvelle arborescence
+
+```
+Application/
+├── main.py                    # point d'entrée minimal (crée MainApp, lance mainloop)
+├── core/
+│   ├── constants.py           # BALISE_MIN/MAX, BALISES_TOUTES, GRID_COLS, PRESETS
+│   └── validation.py          # algorithme de validation d'ordre des balises
+├── io_/
+│   ├── parcours_parsers.py    # parseurs TSV / CSV / OCAD XML / OCAD TXT
+│   └── candidats_csv.py       # parseur du CSV liste de candidats
+├── ui/
+│   ├── app_main.py            # classe MainApp (fenêtre principale, hub multi-parcours)
+│   ├── parcours.py            # classe AppParcours (éditeur de parcours)
+│   └── lecture_puce.py        # classe AppLecturePuce (lecture puce + validation)
+├── sireader2.py                # inchangé (bibliothèque protocole SI, bas niveau)
+├── check_punches.py            # inchangé (script CLI indépendant)
+└── si_read_card.py             # inchangé (script CLI indépendant)
+```
+
+### Table de correspondance (ancien → nouveau)
+
+| Ancien emplacement | Nouvel emplacement | Ce qui a changé |
+|---|---|---|
+| `main.py` (classe `MainApp`, ~1380 lignes) | `ui/app_main.py` (classe inchangée) + `main.py` (10 lignes, point d'entrée seul) | Découpage pur, aucune logique modifiée |
+| `ui_parcours.py` | `ui/parcours.py` | Renommé ; les 6 parseurs de fichiers en sont sortis (voir ci-dessous) |
+| `ui_lecture_puce.py` | `ui/lecture_puce.py` | Renommé ; `parse_candidate_csv` en est sortie (voir ci-dessous) |
+| `BALISE_MIN`/`BALISE_MAX`/... (dupliqués dans `ui_parcours.py` **et** `ui_lecture_puce.py`) | `core/constants.py` | Source unique |
+| Algorithme de validation d'ordre des balises (réimplémenté indépendamment 3 fois : `ui_lecture_puce.py` ×2 dans `_build_passage_section`/`_get_punch_statuses`, `main.py` ×1 dans `_calculer_tag_par_balise`) | `core/validation.py` (`evaluer_ordre`, `statut_balise`, `resultat_parcours`) | Source unique ; équivalence vérifiée par un test à 5000 cas aléatoires comparant ancien/nouveau comportement avant commit |
+| `AppParcours._parser_tsv` / `_parser_lot_tsv` / `_parser_csv_intelligent` / `_parser_lot_csv` / `_parser_ocad_xml` / `_parser_ocad_txt` (méthodes statiques appelées directement par `main.py` via `AppParcours._parser_xxx(...)`, sans jamais construire d'UI) | `io_/parcours_parsers.py` (fonctions libres `parser_xxx`) | Supprime le couplage anormal main.py ↔ classe UI de parcours |
+| `parse_candidate_csv` (fonction dans `ui_lecture_puce.py`) | `io_/candidats_csv.py` | Fonction pure, sans dépendance Tkinter, déplacée telle quelle |
+
+### Ce qui n'a pas changé
+
+- `sireader2.py`, `check_punches.py`, `si_read_card.py` : aucun lien avec les 3 fichiers refactorisés, non touchés.
+- Le comportement de l'application (algorithmes, UI, formats de fichiers) est strictement identique à la v1.0.1.
+
+### Suite prévue
+
+Découpage interne de `ui/app_main.py` (hub multi-parcours, ~1100 lignes) et de
+`ui/lecture_puce.py` (thread série + UI + export CSV encore mélangés) en
+sous-modules plus petits.
 
 ---
 
@@ -167,8 +222,8 @@ Fonctionnalité ajoutée sur la branche `si_image`. Permet d'associer des images
 
 | Fichier | Modification |
 |---|---|
-| `main.py` | Attribut `_images_balises`, bouton "Charger images balises", méthode `_hub_charger_images`, propagation aux apps via `_appliquer_images` |
-| `ui_lecture_puce.py` | Paramètre `images_balises` dans `__init__`, méthode `_appliquer_images`, méthode `_charger_photo` (PIL + fallback natif), galerie horizontale dans `_build_passage_section` |
+| `main.py` *(→ `ui/app_main.py` depuis la refactorisation)* | Attribut `_images_balises`, bouton "Charger images balises", méthode `_hub_charger_images`, propagation aux apps via `_appliquer_images` |
+| `ui_lecture_puce.py` *(→ `ui/lecture_puce.py` depuis la refactorisation)* | Paramètre `images_balises` dans `__init__`, méthode `_appliquer_images`, méthode `_charger_photo` (PIL + fallback natif), galerie horizontale dans `_build_passage_section` |
 
 ### Structure du dossier images (exemple)
 
