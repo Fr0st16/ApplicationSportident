@@ -23,17 +23,23 @@ d'être committée.
 
 ```
 Application/
-├── main.py                    # point d'entrée minimal (crée MainApp, lance mainloop)
+├── main.py                    # point d'entrée minimal (crée MainApp, lance mainloop) — 14 lignes
 ├── core/
 │   ├── constants.py           # BALISE_MIN/MAX, BALISES_TOUTES, GRID_COLS, PRESETS
 │   └── validation.py          # algorithme de validation d'ordre des balises
 ├── io_/
 │   ├── parcours_parsers.py    # parseurs TSV / CSV / OCAD XML / OCAD TXT
-│   └── candidats_csv.py       # parseur du CSV liste de candidats
+│   ├── candidats_csv.py       # parseur du CSV liste de candidats
+│   └── export_csv.py          # génération + écriture de l'export CSV des pointages
 ├── ui/
-│   ├── app_main.py            # classe MainApp (fenêtre principale, hub multi-parcours)
-│   ├── parcours.py            # classe AppParcours (éditeur de parcours)
-│   └── lecture_puce.py        # classe AppLecturePuce (lecture puce + validation)
+│   ├── app_main.py            # classe MainApp (fenêtre principale, onglet Accueil)
+│   ├── hub.py                 # HubMixin : hub multi-parcours (routage, état, orchestration)
+│   ├── hub_view.py            # HubViewMixin : construction des widgets du hub
+│   ├── hub_validation.py      # HubValidationMixin : dialogue de validation mode contrôlée
+│   ├── parcours.py            # classe AppParcours (éditeur : grille de balises)
+│   ├── parcours_lot.py        # LotMixin : gestion du lot multi-parcours
+│   ├── lecture_puce.py        # classe AppLecturePuce (affichage, dialogues, export)
+│   └── lecture_puce_reader.py # ReaderMixin : connexion station + thread de lecture
 ├── sireader2.py                # inchangé (bibliothèque protocole SI, bas niveau)
 ├── check_punches.py            # inchangé (script CLI indépendant)
 └── si_read_card.py             # inchangé (script CLI indépendant)
@@ -43,24 +49,30 @@ Application/
 
 | Ancien emplacement | Nouvel emplacement | Ce qui a changé |
 |---|---|---|
-| `main.py` (classe `MainApp`, ~1380 lignes) | `ui/app_main.py` (classe inchangée) + `main.py` (10 lignes, point d'entrée seul) | Découpage pur, aucune logique modifiée |
-| `ui_parcours.py` | `ui/parcours.py` | Renommé ; les 6 parseurs de fichiers en sont sortis (voir ci-dessous) |
-| `ui_lecture_puce.py` | `ui/lecture_puce.py` | Renommé ; `parse_candidate_csv` en est sortie (voir ci-dessous) |
+| `main.py` (classe `MainApp`, ~1380 lignes) | `main.py` (14 lignes, point d'entrée) + `ui/app_main.py` (287 lignes) + `ui/hub.py`/`hub_view.py`/`hub_validation.py` (le hub multi-parcours, ~1230 lignes à 3) | Découpage en mixins (`HubMixin`, `HubViewMixin`, `HubValidationMixin`), aucune logique modifiée — méthodes déplacées telles quelles |
+| `ui_parcours.py` (~1550 lignes) | `ui/parcours.py` (~1060 lignes) + `ui/parcours_lot.py` (`LotMixin`, gestion du lot) | Renommé, parseurs sortis, gestion du lot multi-parcours isolée en mixin |
+| `ui_lecture_puce.py` (~1520 lignes) | `ui/lecture_puce.py` (~1040 lignes) + `ui/lecture_puce_reader.py` (`ReaderMixin`, connexion + thread) | Renommé, `parse_candidate_csv` sortie, connexion série/thread isolés en mixin |
 | `BALISE_MIN`/`BALISE_MAX`/... (dupliqués dans `ui_parcours.py` **et** `ui_lecture_puce.py`) | `core/constants.py` | Source unique |
-| Algorithme de validation d'ordre des balises (réimplémenté indépendamment 3 fois : `ui_lecture_puce.py` ×2 dans `_build_passage_section`/`_get_punch_statuses`, `main.py` ×1 dans `_calculer_tag_par_balise`) | `core/validation.py` (`evaluer_ordre`, `statut_balise`, `resultat_parcours`) | Source unique ; équivalence vérifiée par un test à 5000 cas aléatoires comparant ancien/nouveau comportement avant commit |
-| `AppParcours._parser_tsv` / `_parser_lot_tsv` / `_parser_csv_intelligent` / `_parser_lot_csv` / `_parser_ocad_xml` / `_parser_ocad_txt` (méthodes statiques appelées directement par `main.py` via `AppParcours._parser_xxx(...)`, sans jamais construire d'UI) | `io_/parcours_parsers.py` (fonctions libres `parser_xxx`) | Supprime le couplage anormal main.py ↔ classe UI de parcours |
-| `parse_candidate_csv` (fonction dans `ui_lecture_puce.py`) | `io_/candidats_csv.py` | Fonction pure, sans dépendance Tkinter, déplacée telle quelle |
+| Algorithme de validation d'ordre des balises (réimplémenté indépendamment 3 fois) | `core/validation.py` (`evaluer_ordre`, `statut_balise`, `resultat_parcours`) | Source unique ; équivalence vérifiée par un test à 5000 cas aléatoires comparant ancien/nouveau comportement |
+| `AppParcours._parser_tsv` / `_parser_lot_tsv` / `_parser_csv_intelligent` / `_parser_lot_csv` / `_parser_ocad_xml` / `_parser_ocad_txt` (méthodes statiques appelées directement par `main.py` via `AppParcours._parser_xxx(...)`) | `io_/parcours_parsers.py` (fonctions libres `parser_xxx`) | Supprime le couplage anormal main.py ↔ classe UI de parcours |
+| `parse_candidate_csv` (fonction dans `ui_lecture_puce.py`) | `io_/candidats_csv.py` | Fonction pure, sans dépendance Tkinter |
+| Export CSV dupliqué (`_count_max_punches`/`_build_csv_rows` dans `AppLecturePuce`, ré-écrit dans `main.py._exporter_tous`) | `io_/export_csv.py` (`count_max_punches`, `build_csv_rows`, `write_csv`) | Source unique |
 
 ### Ce qui n'a pas changé
 
-- `sireader2.py`, `check_punches.py`, `si_read_card.py` : aucun lien avec les 3 fichiers refactorisés, non touchés.
+- `sireader2.py`, `check_punches.py`, `si_read_card.py` : aucun lien avec les fichiers refactorisés, jamais touchés.
 - Le comportement de l'application (algorithmes, UI, formats de fichiers) est strictement identique à la v1.0.1.
 
-### Suite prévue
+### Documentation et qualité
 
-Découpage interne de `ui/app_main.py` (hub multi-parcours, ~1100 lignes) et de
-`ui/lecture_puce.py` (thread série + UI + export CSV encore mélangés) en
-sous-modules plus petits.
+- Toutes les classes et méthodes du code refactorisé (`core/`, `io_/`, `ui/`, `main.py`) ont une docstring expliquant leur rôle.
+- Passe `pyflakes` sur tout le code : aucun avertissement (imports/variables inutilisés nettoyés).
+- Un bug préexistant (avant refactorisation, présent depuis la v1.0.1) a été corrigé : les messages d'erreur de connexion à la station plantaient silencieusement (`NameError`) au lieu de s'afficher, à cause d'une variable d'exception Python supprimée avant l'exécution d'un callback Tkinter différé.
+
+### Suite possible (non prioritaire)
+
+- `ui/hub.py` (~835 lignes) reste le plus gros fichier : construction de widgets et logique de routage encore mélangées à l'intérieur des méthodes de routage elles-mêmes (au-delà de ce qu'un découpage mécanique par méthode permet).
+- Aucun test n'a été fait avec une station SportIdent physique — tout a été vérifié par compilation, tests automatisés et simulation.
 
 ---
 
