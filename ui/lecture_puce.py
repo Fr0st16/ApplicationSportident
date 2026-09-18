@@ -21,6 +21,10 @@ from io_.export_csv import count_max_punches, build_csv_rows, write_csv
 
 
 class AppLecturePuce(tk.Frame):
+    """Onglet de lecture de puces SI pour un parcours donné (ou None = lecture
+    libre) : connexion à la station (autonome ou pilotée par le hub), thread
+    de lecture, affichage des passages avec validation d'ordre, export CSV."""
+
     def __init__(self, parent, parcours=None, on_close=None, on_broadcast=None, on_request_reader=None, on_route_puce=None, on_request_move=None, on_export_all=None, on_candidats_loaded=None, images_balises=None, read_controls=True):
         """Un onglet de lecture pour un parcours (ou None = lecture libre).
 

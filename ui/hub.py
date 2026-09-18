@@ -20,6 +20,12 @@ from datetime import datetime
 
 
 class HubMixin:
+    """Mixin de MainApp : gère l'onglet unique "Lecture en cours" regroupant
+    tous les parcours ouverts (navigation, connexion partagée au lecteur SI,
+    routage automatique d'une puce vers le bon parcours, validation en mode
+    contrôlée, export CSV agrégé). Toutes les méthodes ci-dessous accèdent à
+    l'état défini dans MainApp.__init__ (self._hub_*, self._lecture_apps, ...)."""
+
     def _ouvrir_lecture(self, parcours, shared=True):
         """Crée un AppLecturePuce pour ce parcours (ou None = lecture libre)
         et l'ajoute au hub. `shared=True` (le cas normal) branche les callbacks

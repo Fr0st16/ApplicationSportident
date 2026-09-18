@@ -21,6 +21,8 @@ from io_.parcours_parsers import (
 
 
 class AppParcours(tk.Frame):
+    """Éditeur de parcours : grille de sélection des 226 balises possibles,
+    import/export TSV/CSV/OCAD, et gestion d'un lot multi-parcours."""
 
     def __init__(self, parent, on_done=None, on_cancel=None, initial_lot=None):
         """Éditeur de parcours : grille de sélection des balises + gestion

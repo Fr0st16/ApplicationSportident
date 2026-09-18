@@ -20,6 +20,11 @@ from ui.hub import HubMixin
 
 
 class MainApp(HubMixin):
+    """Fenêtre racine de l'application : notebook avec l'onglet Accueil
+    (permanent) et gestion générique des onglets (fermeture par la croix,
+    scroll molette). Le hub de lecture multi-parcours est fourni par
+    HubMixin ; MainApp ne fait qu'initialiser son état dans __init__."""
+
     def __init__(self):
         """Construit la fenêtre principale : notebook + onglet Accueil, et
         initialise tout l'état du hub multi-parcours (utilisé par HubMixin)."""
