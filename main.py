@@ -5,6 +5,7 @@ from ui.app_main import MainApp
 
 
 def main():
+    """Lance l'application : crée la fenêtre principale et démarre la boucle Tkinter."""
     app = MainApp()
     app.root.mainloop()
 

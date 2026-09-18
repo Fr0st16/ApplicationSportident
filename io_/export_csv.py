@@ -20,6 +20,7 @@ CSV_HEADER_BASE = [
 
 
 def _fmt_time(val):
+    """Formate un datetime en `dd/mm/YYYY HH:MM:SS`, "" si absent."""
     if val is None:
         return ""
     if isinstance(val, datetime):
@@ -52,6 +53,7 @@ def count_max_punches(card_data):
 
 
 def csv_header(max_punches):
+    """En-tête CSV : colonnes fixes + "Balise i"/"Temps i" répétées max_punches fois."""
     header = list(CSV_HEADER_BASE)
     for i in range(1, max_punches + 1):
         header += [f"Balise {i}", f"Temps {i}"]

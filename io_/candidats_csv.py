@@ -16,6 +16,7 @@ def parse_candidate_csv(chemin):
     """
 
     def _normaliser(s):
+        """Minuscule, sans accents ni espaces, pour comparer des noms de colonnes."""
         return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode().lower().strip()
 
     candidats = {}
@@ -30,6 +31,7 @@ def parse_candidate_csv(chemin):
             fieldnames = reader.fieldnames or []
 
             def find_col(noms_cibles, fns=fieldnames):
+                """Retourne le nom de colonne réel correspondant au premier alias trouvé."""
                 for cible in noms_cibles:
                     for fn in fns:
                         if _normaliser(fn) == cible:

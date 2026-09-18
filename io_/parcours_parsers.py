@@ -145,6 +145,7 @@ def parser_ocad_xml(chemin):
     ns_uri = m.group(1) if m else ""
 
     def tag(name):
+        """Préfixe un nom de balise XML par le namespace détecté, si besoin."""
         return f"{{{ns_uri}}}{name}" if ns_uri else name
     if "3.0" in ns_uri:
         version = 3
