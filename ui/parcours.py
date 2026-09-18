@@ -11,12 +11,10 @@ from datetime import datetime
 
 from core.constants import BALISE_MIN, BALISE_MAX, BALISES_TOUTES, GRID_COLS, PRESETS
 from io_.parcours_parsers import (
-    parser_tsv,
     parser_csv_intelligent,
     parser_ocad_xml,
     parser_ocad_txt,
     parser_lot_tsv,
-    parser_lot_csv,
 )
 
 
@@ -627,7 +625,7 @@ class AppParcours(tk.Frame):
         )
 
     def _sauvegarder(self, chemin, data):
-        """Écrit un parcours au format .tsv (même format lu par parser_tsv)."""
+        """Écrit un parcours au format .tsv (même format lu par parser_lot_tsv)."""
         with open(chemin, "w", encoding="utf-8", newline="") as f:
             f.write(f"# {data['nom']}\n")
             if data.get("ordre"):

@@ -341,7 +341,6 @@ class AppLecturePuce(tk.Frame):
                 font=("Segoe UI", 9, "bold"), bg="white", fg="#1a73e8"
             ).pack(anchor="w", padx=10, pady=(8, 0))
 
-        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         if self._parcours:
             balises_set = set(self._parcours["balises"])
             punches_terrain = [
@@ -488,7 +487,6 @@ class AppLecturePuce(tk.Frame):
             if p[0] in self._images_balises
         ]
         if beacons_avec_image:
-            parcours_avec_ordre = self._parcours and self._parcours.get("ordre")
             frame_img = tk.LabelFrame(
                 parent, text="Reconstitution du personnage",
                 font=("Segoe UI", 10, "bold")
@@ -567,12 +565,12 @@ class AppLecturePuce(tk.Frame):
                     if si_nouveau.proto_config.get('mode') != si_nouveau.M_READOUT:
                         si_nouveau.set_operating_mode(si_nouveau.M_READOUT)
                 except SIReaderException as e:
+                    erreur_msg = f"Station mal configurée : {e}"
                     try:
                         si_nouveau.disconnect()
                     except Exception:
                         pass
-                    self._safe_after(0, lambda: self._set_status(
-                        f"Station mal configurée : {e}", ok=False))
+                    self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
                     self._safe_after(0, lambda: self.btn_lire.config(state="disabled"))
                     self._safe_after(0, lambda: self._pack_reconnecter())
                     return
@@ -581,7 +579,8 @@ class AppLecturePuce(tk.Frame):
                 self._safe_after(0, lambda: self._set_status(f"Connecté sur {port}", ok=True))
                 self._safe_after(0, lambda: self.btn_lire.config(state="normal"))
             except Exception as e:
-                self._safe_after(0, lambda: self._set_status(f"Erreur connexion : {e}", ok=False))
+                erreur_msg = f"Erreur connexion : {e}"
+                self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
                 self._safe_after(0, lambda: self.btn_lire.config(state="disabled"))
                 self._safe_after(0, lambda: self._pack_reconnecter())
         threading.Thread(target=_try_connect, daemon=True).start()
