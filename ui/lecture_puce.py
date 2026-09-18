@@ -11,13 +11,13 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from time import sleep
 import threading
-import csv
 import os
 
 from sireader2 import SIReaderReadout, SIReaderException
 from core.constants import BALISE_MIN, BALISE_MAX
 from core.validation import evaluer_ordre, statut_balise, resultat_parcours
 from io_.candidats_csv import parse_candidate_csv
+from io_.export_csv import count_max_punches, build_csv_rows, write_csv
 
 
 class AppLecturePuce(tk.Frame):
@@ -1145,107 +1145,6 @@ class AppLecturePuce(tk.Frame):
         """Applique un dict {balise: chemin} d'images reçu depuis le hub."""
         self._images_balises = dict(images)
 
-    def _count_max_punches(self):
-        """Retourne le nombre max de pointages terrain sur toutes les puces de cet onglet."""
-        max_p = 0
-        for passages in self._card_data.values():
-            for data in passages:
-                n = len([p for p in data.get("punches", []) if BALISE_MIN <= p[0] <= BALISE_MAX])
-                if n > max_p:
-                    max_p = n
-        return max_p
-
-    def _get_punch_statuses(self, punches_terrain):
-        """Retourne la liste des statuts pour chaque pointage terrain.
-
-        """
-        if not self._parcours:
-            return [None] * len(punches_terrain)
-
-        ordre_valide = ordre_invalide = None
-        if self._parcours.get("ordre"):
-            _, ordre_valide, ordre_invalide = evaluer_ordre(punches_terrain, self._parcours["balises"])
-
-        return [
-            "ok" if statut_balise(p[0], self._parcours, ordre_valide, ordre_invalide) == "ok" else "bad"
-            for p in punches_terrain
-        ]
-
-    def _build_csv_rows(self, max_punches):
-        """Génère les lignes CSV pour toutes les puces de cet onglet.
-
-        Colonnes : Numéro puce | Participant | Parcours | Nb postes | Passage |
-                   Départ | Arrivée | Temps course | [Balise i | Temps i]...
-
-        Pour un parcours défini : n'exporte que les balises effectivement pointées,
-        triées par numéro croissant. Si une balise pointée n'appartient pas au
-        parcours attendu, la colonne temps contiendra "PM" (poste manquant).
-        """
-        parcours_nom = self._parcours["nom"] if self._parcours else "Lecture libre"
-        parcours_set = set(self._parcours.get("balises", [])) if self._parcours else set()
-        nb_postes    = len(self._parcours["balises"]) if self._parcours else ""
-        rows = []
-        for card_number, passages in self._card_data.items():
-            nom = self._noms.get(card_number, "")
-            for passage_num, data in enumerate(passages, start=1):
-                punches = [
-                    p for p in data.get("punches", [])
-                    if BALISE_MIN <= p[0] <= BALISE_MAX
-                ]
-                # Dédupliquer : garder le dernier pointage pour chaque balise
-                last_punch = {}
-                for p in punches:
-                    last_punch[p[0]] = p[1]
-
-                # Statuts des pointages (utile en mode 'ordre')  on garde le statut
-                # correspondant a  la dernière occurrence de chaque balise.
-                punch_status_by_code = {}
-                if self._parcours:
-                    statuses = self._get_punch_statuses(punches)
-                    for (p, st) in zip(punches, statuses):
-                        punch_status_by_code[p[0]] = st
-
-                start  = data.get("start")
-                finish = data.get("finish")
-                if isinstance(start, datetime) and isinstance(finish, datetime):
-                    delta    = finish - start
-                    total_s  = int(delta.total_seconds())
-                    h, rem   = divmod(abs(total_s), 3600)
-                    m, s     = divmod(rem, 60)
-                    temps_course = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
-                else:
-                    temps_course = ""
-
-                row = [
-                    card_number,
-                    nom,
-                    parcours_nom,
-                    nb_postes,
-                    passage_num,
-                    self._fmt_time(start),
-                    self._fmt_time(finish),
-                    temps_course,
-                ]
-
-                # Utiliser uniquement les balises réellement pointées, triées numériquement
-                balises_pointes = sorted(last_punch.keys())
-                for b in balises_pointes:
-                    row.append(str(b))
-                    if self._parcours and b not in parcours_set:
-                        row.append("PM")
-                    # En mode 'ordre', si le pointage est hors-séquence, indiquer PM
-                    elif self._parcours and self._parcours.get("ordre") and punch_status_by_code.get(b) != "ok":        
-                        row.append("PM")
-                    else:
-                        t = last_punch.get(b)
-                        row.append(t.strftime("%H:%M:%S") if t else "")
-
-                # Compléter pour atteindre max_punches
-                row += [""] * ((max_punches - len(balises_pointes)) * 2)
-
-                rows.append(row)
-        return rows
-
     def _exporter_csv(self):
         """Exporte toutes les puces de cet onglet dans un fichier CSV.
 
@@ -1261,18 +1160,9 @@ class AppLecturePuce(tk.Frame):
         )
         if not chemin:
             return False
-        max_punches = self._count_max_punches()
-        # En-tête générique : Balise 1, Temps 1 ... selon max_punches
-        header = ["Numéro puce", "Participant", "Parcours", "Nb postes", "Passage",
-                  "Départ", "Arrivée", "Temps course"]
-        for i in range(1, max_punches + 1):
-            header += [f"Balise {i}", f"Temps {i}"]
-
-        with open(chemin, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=";")
-            writer.writerow(header)
-            for row in self._build_csv_rows(max_punches):
-                writer.writerow(row)
+        max_punches = count_max_punches(self._card_data)
+        rows = build_csv_rows(self._card_data, self._noms, self._parcours, max_punches)
+        write_csv(chemin, max_punches, rows)
         self._set_status(f"Export CSV enregistré : {chemin}", ok=True)
         return True
 

@@ -10,7 +10,6 @@ Fenêtre principale avec onglets :
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
-import csv
 from datetime import datetime
 
 
@@ -1089,18 +1088,13 @@ class MainApp:
         if not chemin:
             return
 
-        max_punches = max((app._count_max_punches() for app in apps_avec_data), default=0)
+        from io_.export_csv import count_max_punches, build_csv_rows, write_csv
 
-        with open(chemin, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.writer(f, delimiter=";")
-            header = ["Numéro puce", "Participant", "Parcours", "Nb postes", "Passage",
-                      "Départ", "Arrivée", "Temps course"]
-            for i in range(1, max_punches + 1):
-                header += [f"Balise {i}", f"Temps {i}"]
-            writer.writerow(header)
-            for app in apps_avec_data:
-                for row in app._build_csv_rows(max_punches):
-                    writer.writerow(row)
+        max_punches = max((count_max_punches(app._card_data) for app in apps_avec_data), default=0)
+        rows = []
+        for app in apps_avec_data:
+            rows.extend(build_csv_rows(app._card_data, app._noms, app._parcours, max_punches))
+        write_csv(chemin, max_punches, rows)
 
         messagebox.showinfo("Export réussi", f"Tous les parcours ont été exportés vers :\n{chemin}", parent=self.root)
 
