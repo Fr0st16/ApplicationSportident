@@ -513,7 +513,7 @@ class MainApp:
         if not chemin:
             return
         try:
-            from ui_lecture_puce import parse_candidate_csv
+            from io_.candidats_csv import parse_candidate_csv
             candidats = parse_candidate_csv(chemin)
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible de charger le fichier :\n{e}", parent=self.root)
