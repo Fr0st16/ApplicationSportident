@@ -679,13 +679,13 @@ class AppLecturePuce(tk.Frame):
                 if si_nouveau.proto_config.get('mode') != si_nouveau.M_READOUT:
                     si_nouveau.set_operating_mode(si_nouveau.M_READOUT)
             except SIReaderException as e:
+                erreur_msg = f"Station mal configurée : {e}."
                 try:
                     si_nouveau.disconnect()
                 except Exception:
                     pass
                 self._erreur_connexion = True
-                self._safe_after(0, lambda: self._set_status(
-                    f"Station mal configurée : {e}.", ok=False))
+                self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
                 self._safe_after(0, lambda: self._reset_bouton(erreur=True))
                 return
             self.si = si_nouveau
@@ -694,9 +694,9 @@ class AppLecturePuce(tk.Frame):
                 f"Connecté sur le port {port}", ok=True))
             self._lire_puce()
         except Exception as e:
+            erreur_msg = f"Erreur connexion : {e}."
             self._erreur_connexion = True
-            self._safe_after(0, lambda: self._set_status(
-                f"Erreur connexion : {e}.", ok=False))
+            self._safe_after(0, lambda: self._set_status(erreur_msg, ok=False))
             self._safe_after(0, lambda: self._reset_bouton(erreur=True))
 
     def _release_reader(self):
