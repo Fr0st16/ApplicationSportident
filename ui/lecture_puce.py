@@ -22,6 +22,16 @@ from io_.export_csv import count_max_punches, build_csv_rows, write_csv
 
 class AppLecturePuce(tk.Frame):
     def __init__(self, parent, parcours=None, on_close=None, on_broadcast=None, on_request_reader=None, on_route_puce=None, on_request_move=None, on_export_all=None, on_candidats_loaded=None, images_balises=None, read_controls=True):
+        """Un onglet de lecture pour un parcours (ou None = lecture libre).
+
+        Deux modes selon les callbacks fournis :
+        - Autonome (`read_controls=True`, callbacks absents) : gère sa propre
+          connexion série et ses propres boutons de lecture.
+        - Piloté par le hub (`read_controls=False` + callbacks `on_request_reader`/
+          `on_route_puce`/...) : le hub (HubMixin) possède la connexion physique
+          unique au lecteur SI et route chaque puce lue vers le bon onglet via
+          ces callbacks.
+        """
         super().__init__(parent)
         self.pack(fill="both", expand=True)
         self._on_close_cb = on_close
@@ -80,6 +90,8 @@ class AppLecturePuce(tk.Frame):
 
     #  Construction de l'interface
     def _build_ui(self):
+        """Construit la sidebar (liste des puces lues) et la zone de contenu
+        principale de l'onglet."""
         # Barre de statut uniquement en mode autonome (pas dans le hub)
         if self._read_controls and self._on_request_reader is None:
             frame_status = tk.Frame(self, bg="#2c2c2c")
@@ -272,6 +284,7 @@ class AppLecturePuce(tk.Frame):
             pass
 
     def _afficher_tab_lecture(self):
+        """Affiche le panneau "Attendre une puce" (mode autonome uniquement)."""
         if self.tab_lecture is None:
             return
         self._afficher_frame(self.tab_lecture)
@@ -519,6 +532,8 @@ class AppLecturePuce(tk.Frame):
 
     #  Connexion a  la station
     def _connect_station(self):
+        """Lance dans un thread la connexion (autonome) à la station SI et
+        sa configuration en protocole étendu + mode lecture, sans bloquer l'UI."""
         self.btn_lire.config(state="disabled")
         # Nettoyer l'ancienne connexion si elle existe
         if self.si is not None:
@@ -531,6 +546,7 @@ class AppLecturePuce(tk.Frame):
         self.btn_reconnecter.pack_forget()
 
         def _try_connect():
+            """Corps du thread de connexion (bloquant, tourne hors du thread UI)."""
             try:
                 si_nouveau = SIReaderReadout()
                 # Garde-fou : si la fermeture a eu lieu pendant la connexion
@@ -567,6 +583,10 @@ class AppLecturePuce(tk.Frame):
         threading.Thread(target=_try_connect, daemon=True).start()
 
     def _set_status(self, msg, ok=True):
+        """Met à jour le message de statut (vert si `ok`, rouge sinon). En mode
+        autonome, met à jour le label local ; dans tous les cas, émet un
+        événement Tkinter `<<AppStatus>>` pour que le hub puisse aussi
+        l'afficher dans son panneau global."""
         if self._closing:
             return
         try:
@@ -602,6 +622,8 @@ class AppLecturePuce(tk.Frame):
 
     #  Lecture puce
     def _demarrer_lecture(self):
+        """Démarre l'attente d'une puce (bouton "Attendre une puce") : réclame
+        le lecteur partagé si on est dans le hub, puis lance le thread de lecture."""
         if self._on_request_reader:
             # Mode partagé : libérer les autres onglets avant de prendre le lecteur
             self._on_request_reader(self)
@@ -861,6 +883,7 @@ class AppLecturePuce(tk.Frame):
             menu.add_command(label="Déplacer vers...", command=lambda cn=card_number: self._demander_deplacement(cn))  
 
             def _popup(e, m=menu):
+                """Affiche le menu contextuel (clic droit) au point de clic."""
                 try:
                     m.tk_popup(e.x_root, e.y_root)
                 finally:
@@ -949,6 +972,7 @@ class AppLecturePuce(tk.Frame):
             annule = [False]
 
             def valider(event=None):
+                """Valide le nom saisi (refuse un nom vide ou déjà utilisé)."""
                 valeur = entry.get().strip()
                 if not valeur:
                     self._lbl_erreur_nom.config(text="Le nom ne peut pas être vide.")
@@ -960,6 +984,7 @@ class AppLecturePuce(tk.Frame):
                 dialog.destroy()
 
             def annuler(event=None):
+                """Ferme le dialogue sans nom (la lecture de cette puce est abandonnée)."""
                 annule[0] = True
                 dialog.destroy()
 
@@ -1029,6 +1054,7 @@ class AppLecturePuce(tk.Frame):
         lbl_err.pack()
 
         def valider(event=None):
+            """Valide le nouveau nom saisi (refuse un nom vide ou déjà pris)."""
             nouveau = entry.get().strip()
             if not nouveau:
                 lbl_err.config(text="Le nom ne peut pas être vide.")
@@ -1107,6 +1133,8 @@ class AppLecturePuce(tk.Frame):
             pass
 
     def _charger_liste_candidats(self):
+        """Ouvre un CSV candidats (numéro de puce → nom/catégorie/infos) et
+        l'applique localement, puis le diffuse aux autres onglets du hub."""
         chemin = filedialog.askopenfilename(
             title="Charger la liste des candidats",
             filetypes=[("Fichier CSV", "*.csv"), ("Tous les fichiers", "*.*")]
@@ -1238,6 +1266,7 @@ class AppLecturePuce(tk.Frame):
 
     #  Utilitaires
     def _fmt_time(self, val):
+        """Formate un datetime en `dd/mm/YYYY HH:MM:SS`, "" si absent."""
         if val is None:
             return ""
         if isinstance(val, datetime):
@@ -1274,6 +1303,8 @@ class AppLecturePuce(tk.Frame):
             pass
 
     def _reset_bouton(self, erreur=False):
+        """Remet le bouton "Attendre une puce" en état repos ; le désactive
+        si la lecture s'est arrêtée sur une erreur de connexion."""
         if self._closing:
             return
         try:

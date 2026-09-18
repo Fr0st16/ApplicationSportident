@@ -23,6 +23,9 @@ from io_.parcours_parsers import (
 class AppParcours(tk.Frame):
 
     def __init__(self, parent, on_done=None, on_cancel=None, initial_lot=None):
+        """Éditeur de parcours : grille de sélection des balises + gestion
+        d'un lot multi-parcours. `initial_lot` pré-remplit le lot (utilisé
+        pour rouvrir l'éditeur sur les parcours déjà ouverts dans le hub)."""
         super().__init__(parent, bg="white")
         self.pack(fill="both", expand=True)
         self._on_done = on_done
@@ -55,6 +58,8 @@ class AppParcours(tk.Frame):
                 pass
 
     def _build_ui(self):
+        """Construit toute l'interface : en-tête, grille de balises (responsive,
+        sélection au drag), panneau lot multi-parcours, et barre d'actions."""
         entete = tk.Frame(self, bg="#1e1e2e")
         entete.pack(fill="x")
         tk.Label(
@@ -236,6 +241,7 @@ class AppParcours(tk.Frame):
         )
 
         def _on_grille_scroll(ev):
+            """Molette (Windows delta ou Linux Button-4/5) sur la grille de balises."""
             if getattr(ev, "num", None) == 4:
                 self._grille_canvas.yview_scroll(-1, "units")
             elif getattr(ev, "num", None) == 5:
@@ -261,6 +267,7 @@ class AppParcours(tk.Frame):
         # Responsive : la frame interne suit la largeur exacte du canvas
 
         def _on_canvas_configure(e):
+            """Recalcule le nombre de colonnes quand la fenêtre est redimensionnée."""
             self._grille_canvas.itemconfig(self._grille_canvas_win_id, width=e.width)
             self._adapter_grille_cols(e.width)
         self._grille_canvas.bind("<Configure>", _on_canvas_configure)
@@ -443,6 +450,7 @@ class AppParcours(tk.Frame):
         self._rafraichir_grille()
 
     def _tout_effacer(self):
+        """Vide la sélection de balises courante."""
         self._est_sauvegarde = False
         self._balises_sel.clear()
         self._balises_ordre.clear()
@@ -450,6 +458,8 @@ class AppParcours(tk.Frame):
         self._rafraichir_grille()
 
     def _toggle_balise(self, n):
+        """Ajoute/retire la balise `n` de la sélection (respecte la limite
+        d'un preset actif, le cas échéant)."""
         self._est_sauvegarde = False
         if n in self._balises_sel:
             self._balises_sel.discard(n)
@@ -595,6 +605,7 @@ class AppParcours(tk.Frame):
         return True
 
     def _get_data(self):
+        """Retourne l'état courant de l'éditeur sous forme {nom, balises, ordre}."""
         return {
             "nom": self._entry_nom.get().strip() or "parcours",
             "balises": list(self._balises_ordre),  # ordre de sélection préservé
@@ -602,6 +613,8 @@ class AppParcours(tk.Frame):
         }
 
     def _choisir_chemin(self, data):
+        """Ouvre la boîte de dialogue "Enregistrer sous" pré-remplie du nom
+        de parcours et de la date, retourne le chemin choisi (ou "")."""
         nom_fichier = f"{data['nom']}_{datetime.now().strftime('%d-%m-%Y')}.tsv"
         return filedialog.asksaveasfilename(
             defaultextension=".tsv",
@@ -612,6 +625,7 @@ class AppParcours(tk.Frame):
         )
 
     def _sauvegarder(self, chemin, data):
+        """Écrit un parcours au format .tsv (même format lu par parser_tsv)."""
         with open(chemin, "w", encoding="utf-8", newline="") as f:
             f.write(f"# {data['nom']}\n")
             if data.get("ordre"):
@@ -620,6 +634,8 @@ class AppParcours(tk.Frame):
                 f.write(f"{b}\n")
 
     def _enregistrer(self):
+        """Bouton "Enregistrer TSV" : enregistre le lot s'il y en a un, sinon
+        le parcours unique en cours d'édition (après validation)."""
         if self._lot:
             self._enregistrer_lot_tsv()
             return
@@ -639,6 +655,7 @@ class AppParcours(tk.Frame):
         self._est_sauvegarde = True
 
     def _enregistrer_csv(self):
+        """Bouton "Enregistrer CSV" : équivalent de _enregistrer mais au format CSV."""
         if self._lot:
             self._enregistrer_lot_csv()
             return
@@ -856,6 +873,7 @@ class AppParcours(tk.Frame):
         barre.pack(fill="x", side="bottom")
 
         def _ok():
+            """Valide l'import CSV avec le nom/ordre éventuellement modifiés."""
             result[0] = (
                 var_nom.get().strip() or nom_defaut,
                 list(balises),
@@ -864,6 +882,7 @@ class AppParcours(tk.Frame):
             dlg.destroy()
 
         def _annuler():
+            """Ferme le dialogue d'import sans rien importer."""
             dlg.destroy()
         tk.Button(
             barre,
@@ -1192,6 +1211,7 @@ class AppParcours(tk.Frame):
             self._on_done(data)
 
     def _annuler(self):
+        """Bouton "Annuler" de l'éditeur : délègue la fermeture de l'onglet à main.py."""
         if self._on_cancel:
             self._on_cancel()
 
